@@ -14,29 +14,24 @@ impl DevServer {
     }
 
     pub async fn serve_with_config(&self, folder: impl Into<String>, host: String, port: String) {
-        println!(
-            "Starting development server at http://{}:{}",
-            host, port
-        );
+        println!("Starting development server at http://{}:{}", host, port);
         let folder = folder.into();
 
         let static_files = warp::fs::dir(folder.clone());
 
-        let ws_route = warp::path("livereload")
-            .and(warp::ws())
-            .map({
-                let tx = self.tx.clone();
-                move |ws: warp::ws::Ws| {
-                    let mut rx = tx.subscribe();
-                    ws.on_upgrade(move |websocket| async move {
-                        use warp::ws::Message;
-                        let (mut tx_ws, _) = websocket.split();
-                        while rx.recv().await.is_ok() {
-                            let _ = tx_ws.send(Message::text("reload")).await;
-                        }
-                    })
-                }
-            });
+        let ws_route = warp::path("livereload").and(warp::ws()).map({
+            let tx = self.tx.clone();
+            move |ws: warp::ws::Ws| {
+                let mut rx = tx.subscribe();
+                ws.on_upgrade(move |websocket| async move {
+                    use warp::ws::Message;
+                    let (mut tx_ws, _) = websocket.split();
+                    while rx.recv().await.is_ok() {
+                        let _ = tx_ws.send(Message::text("reload")).await;
+                    }
+                })
+            }
+        });
 
         let html_route = warp::path::tail().and_then({
             let folder = folder.clone();
