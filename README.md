@@ -32,7 +32,7 @@ cargo build --release
 ### 3. Run the Dev Server
 
 ```bash
-./target/release/rust_live_server --dir ./public --port 9000 --host 127.0.0.1
+./target/release/dev_server --dir ./client --port 9000 --host 127.0.0.1
 ```
 
 - `--dir` → directory to serve
@@ -48,7 +48,7 @@ rust-dev-server/
 │   ├── server.rs            # Warp server, routes, HTML injection.
 │   └── watcher/
 │       └── file_watcher.rs  # File change detection using notify.
-├── public/
+├── client/
 │   ├── index.html           # Starter UI.
 │   ├── styles.css
 │   └── index.js
@@ -61,7 +61,7 @@ rust-dev-server/
 Run using:
 
 ```bash
-./target/release/dev_server --dir ./public --port 9000 --host 0.0.0.0
+./target/release/dev_server --dir ./client --port 9000 --host 0.0.0.0
 ```
 
 Then visit:
@@ -90,6 +90,31 @@ Works on mobile/tablets over same WiFi.
   ws.onmessage = () => window.location.reload();
 </script>
 ```
+
+### Use globally
+
+1. Install globally (from the repo dir):
+
+```bash
+cargo install --path . --locked
+```
+
+This compiles and copies the binary to `~/.cargo/bin/dev_server`.
+
+2. Use from anywhere:
+
+```bash
+cd ~/some/project
+dev_server            # serves the current directory on 127.0.0.1:8080
+dev_server -p 9000    # custom port
+```
+
+3. Update later after source changes
+
+```bash
+cargo install --path . --locked --force
+```
+
 
 ## Tips
 
