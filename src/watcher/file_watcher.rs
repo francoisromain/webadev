@@ -1,5 +1,5 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result, Watcher};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::sync::broadcast::Sender;
 
 #[derive(Clone)]
@@ -24,10 +24,9 @@ impl FileWatcher {
                         if matches!(
                             event.kind,
                             EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
-                        ) {
-                            if event.paths.iter().any(should_reload_for_path) {
-                                let _ = tx.send("reload".to_string());
-                            }
+                        ) && event.paths.iter().any(|p| should_reload_for_path(p))
+                        {
+                            let _ = tx.send("reload".to_string());
                         }
                     }
                 })
@@ -44,7 +43,7 @@ impl FileWatcher {
     }
 }
 
-fn should_reload_for_path(path: &PathBuf) -> bool {
+fn should_reload_for_path(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => matches!(ext, "html" | "css" | "js" | "jsx" | "ts" | "tsx"),
         None => false,
