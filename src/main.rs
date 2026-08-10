@@ -4,7 +4,7 @@ mod watcher;
 use server::DevServer;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use watcher::file_watcher::FileWatcher;
+use watcher::FileWatcher;
 
 #[tokio::main]
 async fn main() {

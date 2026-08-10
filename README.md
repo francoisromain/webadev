@@ -46,8 +46,7 @@ rust-dev-server/
 ├── src/
 │   ├── main.rs              # CLI entrypoint.
 │   ├── server.rs            # Warp server, routes, HTML injection.
-│   └── watcher/
-│       └── file_watcher.rs  # File change detection using notify.
+│   └── watcher.rs           # File change detection using notify.
 ├── client/
 │   ├── index.html           # Starter UI.
 │   ├── styles.css
