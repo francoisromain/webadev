@@ -2,7 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use std::fs;
 use std::net::IpAddr;
 use tokio::sync::broadcast::Sender;
-use warp::{http::Response, Filter, Rejection};
+use warp::{Filter, Rejection, http::Response};
 
 pub struct DevServer {
     tx: Sender<String>,
@@ -70,10 +70,9 @@ impl DevServer {
 fn inject_reload_script(html: String, port: &str) -> String {
     let script = format!(
         r#"<script>
-            const ws = new WebSocket("ws://localhost:{}/livereload");
+            const ws = new WebSocket(`ws://${{location.hostname}}:{port}/livereload`);
             ws.onmessage = () => window.location.reload();
         </script>"#,
-        port
     );
 
     if html.contains("</body>") {
