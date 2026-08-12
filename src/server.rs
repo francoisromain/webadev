@@ -41,17 +41,22 @@ impl DevServer {
                 let port = port.clone();
                 async move {
                     let path_str = path.as_str();
-                    let full_path = format!("{}/{}", folder, path_str);
-                    if path_str.ends_with(".html") {
-                        if let Ok(content) = fs::read_to_string(&full_path) {
-                            let injected = inject_reload_script(content, &port);
-                            return Ok::<_, Rejection>(
-                                Response::builder()
-                                    .header("content-type", "text/html")
-                                    .body(injected)
-                                    .unwrap(),
-                            );
-                        }
+                    let file_name = if path_str.is_empty() {
+                        "index.html"
+                    } else {
+                        path_str
+                    };
+                    let full_path = format!("{}/{}", folder, file_name);
+                    if file_name.ends_with(".html")
+                        && let Ok(content) = fs::read_to_string(&full_path)
+                    {
+                        let injected = inject_reload_script(content, &port);
+                        return Ok::<_, Rejection>(
+                            Response::builder()
+                                .header("content-type", "text/html")
+                                .body(injected)
+                                .unwrap(),
+                        );
                     }
                     Err(warp::reject::not_found())
                 }
