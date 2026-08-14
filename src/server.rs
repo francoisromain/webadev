@@ -134,8 +134,12 @@ fn not_found() -> Response {
 fn inject_reload_script(html: &str, port: u16) -> String {
     let script = format!(
         r#"<script>
-            const ws = new WebSocket(`ws://${{location.hostname}}:{port}/livereload`);
-            ws.onmessage = () => window.location.reload();
+            const connect = () => {{
+                const ws = new WebSocket(`ws://${{location.hostname}}:{port}/livereload`);
+                ws.onmessage = () => window.location.reload();
+                ws.onclose = () => setTimeout(connect, 500);
+            }};
+            connect();
         </script>"#,
     );
 
