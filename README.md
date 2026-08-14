@@ -11,6 +11,7 @@ A blazing-fast, zero-config, live-reloading development server written in pure R
 - **Serve any static folder** (HTML/CSS/JS)
 - **Live reload on file change**
 - **Smart script injection** (no manual setup needed)
+- **Auto-reconnect** (reloads the page when the server restarts)
 - **Custom host/port support**
 - Built with safe, idiomatic Rust
 
@@ -85,8 +86,13 @@ Works on mobile/tablets over same WiFi.
 
 ```html
 <script>
+  let first = true;
   const connect = () => {
     const ws = new WebSocket(`ws://${location.hostname}:${port}/livereload`);
+    ws.onopen = () => {
+      if (!first) window.location.reload();
+      first = false;
+    };
     ws.onmessage = () => window.location.reload();
     ws.onclose = () => setTimeout(connect, 500);
   };

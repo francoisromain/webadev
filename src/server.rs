@@ -134,8 +134,13 @@ fn not_found() -> Response {
 fn inject_reload_script(html: &str, port: u16) -> String {
     let script = format!(
         r#"<script>
+            let first = true;
             const connect = () => {{
                 const ws = new WebSocket(`ws://${{location.hostname}}:{port}/livereload`);
+                ws.onopen = () => {{
+                    if (!first) window.location.reload();
+                    first = false;
+                }};
                 ws.onmessage = () => window.location.reload();
                 ws.onclose = () => setTimeout(connect, 500);
             }};
@@ -197,6 +202,8 @@ mod tests {
         assert!(html.contains("hi"));
         assert!(html.contains("4321"));
         assert!(html.contains("ws://"));
+        assert!(html.contains("onopen"));
+        assert!(html.contains("first"));
     }
 
     #[tokio::test]
