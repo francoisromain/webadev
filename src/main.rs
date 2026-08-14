@@ -24,6 +24,10 @@ struct Args {
     /// Address to bind to
     #[arg(long, default_value = "127.0.0.1")]
     host: IpAddr,
+
+    /// Do not open the page in the browser on start
+    #[arg(long)]
+    no_open: bool,
 }
 
 #[tokio::main]
@@ -32,5 +36,5 @@ async fn main() {
 
     let (tx, _rx) = broadcast::channel(100);
     watch(tx.clone(), &args.dir);
-    run_server(tx, args.dir, args.host, args.port).await;
+    run_server(tx, args.dir, args.host, args.port, !args.no_open).await;
 }

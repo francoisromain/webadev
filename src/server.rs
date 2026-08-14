@@ -22,7 +22,13 @@ struct AppState {
 }
 
 /// Serve files from `folder` on `host:port`, with live reload over WebSocket.
-pub async fn run_server(tx: Sender<String>, folder: impl AsRef<Path>, host: IpAddr, port: u16) {
+pub async fn run_server(
+    tx: Sender<String>,
+    folder: impl AsRef<Path>,
+    host: IpAddr,
+    port: u16,
+    open_browser: bool,
+) {
     let listener = tokio::net::TcpListener::bind((host, port))
         .await
         .expect("Failed to bind address");
@@ -37,6 +43,11 @@ pub async fn run_server(tx: Sender<String>, folder: impl AsRef<Path>, host: IpAd
         format!("http://{host}:{port}")
     };
     println!("Starting development server at {url}");
+    if open_browser {
+        if let Err(err) = open::that(&url) {
+            eprintln!("Failed to open browser: {err}");
+        }
+    }
 
     let app = build_app(AppState {
         folder: folder.as_ref().to_path_buf(),

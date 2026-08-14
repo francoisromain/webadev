@@ -39,6 +39,7 @@ cargo build --release
 - `--dir` → directory to serve
 - `--port` → port to run on (default: 8080, use `0` for a random free port)
 - `--host` → host (use `0.0.0.0` to access from other devices)
+- `--no-open` → do not open the page in the browser on start (opens by default)
 
 ## Folder Structure
 
@@ -137,6 +138,7 @@ cargo install --path . --locked --force
 - [Rust](https://www.rust-lang.org/)
 - [axum](https://docs.rs/axum)
 - [notify](https://docs.rs/notify) (with a custom debounce loop)
+- [open](https://crates.io/crates/open) (opens the browser on start)
 - [tokio](https://tokio.rs/)
 - `cargo` for package and CLI management
 
