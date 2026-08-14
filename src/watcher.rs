@@ -135,3 +135,41 @@ fn should_reload_for_path(path: &Path) -> bool {
         None => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
+
+    #[test]
+    fn reads_are_not_content_changes() {
+        assert!(!is_content_change(&EventKind::Access(AccessKind::Open(
+            AccessMode::Any
+        ))));
+        assert!(!is_content_change(&EventKind::Access(AccessKind::Close(
+            AccessMode::Write
+        ))));
+    }
+
+    #[test]
+    fn writes_creates_and_removes_are_content_changes() {
+        assert!(is_content_change(&EventKind::Modify(ModifyKind::Data(
+            DataChange::Any
+        ))));
+        assert!(is_content_change(&EventKind::Create(CreateKind::File)));
+        assert!(is_content_change(&EventKind::Remove(RemoveKind::File)));
+        assert!(!is_content_change(&EventKind::Any));
+        assert!(!is_content_change(&EventKind::Other));
+    }
+
+    #[test]
+    fn reload_worthy_extensions() {
+        for ext in ["html", "css", "js", "jsx", "ts", "tsx"] {
+            assert!(should_reload_for_path(Path::new(&format!("a.{ext}"))));
+        }
+        assert!(!should_reload_for_path(Path::new("a.txt")));
+        assert!(!should_reload_for_path(Path::new("a.log")));
+        assert!(!should_reload_for_path(Path::new("index")));
+        assert!(!should_reload_for_path(Path::new(".hidden")));
+    }
+}
