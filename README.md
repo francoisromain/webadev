@@ -45,7 +45,7 @@ cargo build --release
 rust-dev-server/
 ├── src/
 │   ├── main.rs              # CLI entrypoint.
-│   ├── server.rs            # Warp server, routes, HTML injection.
+│   ├── server.rs            # Axum server, routes, HTML injection.
 │   └── watcher.rs           # File change detection using notify.
 ├── client/
 │   ├── index.html           # Starter UI.
@@ -125,7 +125,7 @@ cargo install --path . --locked --force
 ## Built With
 
 - [Rust](https://www.rust-lang.org/)
-- [warp](https://docs.rs/warp)
+- [axum](https://docs.rs/axum)
 - [notify](https://docs.rs/notify)
 - [tokio](https://tokio.rs/)
 - `cargo` for package and CLI management

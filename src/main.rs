@@ -1,7 +1,7 @@
 mod server;
 mod watcher;
 
-use server::DevServer;
+use server::run_server;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use watcher::FileWatcher;
@@ -39,6 +39,11 @@ async fn main() {
     let watcher = Arc::new(FileWatcher::new(tx.clone()));
     watcher.clone().watch(&serve_dir);
 
-    let server = DevServer::new(tx.clone());
-    server.serve_with_config(serve_dir, host, port).await;
+    run_server(
+        tx,
+        serve_dir,
+        host.parse().expect("Invalid IP address"),
+        port.parse().expect("Invalid port number"),
+    )
+    .await;
 }
