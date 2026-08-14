@@ -151,3 +151,88 @@ fn inject_reload_script(html: &str, port: u16) -> String {
         format!("{}\n{}", html, script)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn test_app(dir: &Path, port: u16) -> Router {
+        let (tx, _rx) = tokio::sync::broadcast::channel(8);
+        build_app(AppState {
+            folder: dir.to_path_buf(),
+            port,
+            tx,
+        })
+    }
+
+    async fn get(app: &Router, uri: &str) -> (axum::http::StatusCode, Vec<u8>) {
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        (status, bytes.to_vec())
+    }
+
+    fn write(dir: &Path, rel: &str, content: &str) {
+        let full = dir.join(rel);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, content).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_root_index_with_injected_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "index.html", "<html><body>hi</body></html>");
+        let app = test_app(dir.path(), 4321);
+        let (status, body) = get(&app, "/").await;
+        assert_eq!(status, 200);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("hi"));
+        assert!(html.contains("4321"));
+        assert!(html.contains("ws://"));
+    }
+
+    #[tokio::test]
+    async fn serves_nested_directory_index() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "sub/index.html", "<html>sub</html>");
+        let app = test_app(dir.path(), 4321);
+        let (status, body) = get(&app, "/sub").await;
+        assert_eq!(status, 200);
+        assert!(String::from_utf8(body).unwrap().contains("sub"));
+    }
+
+    #[tokio::test]
+    async fn missing_file_is_404() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = test_app(dir.path(), 4321);
+        let (status, _) = get(&app, "/nope.html").await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn path_traversal_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "index.html", "<html></html>");
+        let app = test_app(dir.path(), 4321);
+        let (status, _) = get(&app, "/../../etc/passwd").await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn css_is_served_without_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "style.css", "body {}");
+        let app = test_app(dir.path(), 4321);
+        let (status, body) = get(&app, "/style.css").await;
+        assert_eq!(status, 200);
+        assert_eq!(String::from_utf8(body).unwrap(), "body {}");
+    }
+}
