@@ -93,29 +93,38 @@ async fn serve_file(folder: &Path, path: &str, port: u16) -> Response {
         file_path = file_path.join("index.html");
     }
 
+    let bytes = match tokio::fs::read(&file_path).await {
+        Ok(bytes) => bytes,
+        Err(_) => return not_found(),
+    };
+
     let is_html = file_path.extension().and_then(|e| e.to_str()) == Some("html");
     if is_html {
-        match tokio::fs::read_to_string(&file_path).await {
+        match String::from_utf8(bytes) {
             Ok(html) => html_response(inject_reload_script(&html, port)),
-            Err(_) => not_found(),
+            Err(err) => html_response_raw(err.into_bytes()),
         }
     } else {
-        match tokio::fs::read(&file_path).await {
-            Ok(bytes) => {
-                let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
-                Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_TYPE, mime.as_ref())
-                    .header(header::CACHE_CONTROL, "no-cache")
-                    .body(Body::from(bytes))
-                    .expect("failed to build response")
-            }
-            Err(_) => not_found(),
-        }
+        let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.as_ref())
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(Body::from(bytes))
+            .expect("failed to build response")
     }
 }
 
 fn html_response(body: String) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(body))
+        .expect("failed to build response")
+}
+
+fn html_response_raw(body: Vec<u8>) -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -241,5 +250,16 @@ mod tests {
         let (status, body) = get(&app, "/style.css").await;
         assert_eq!(status, 200);
         assert_eq!(String::from_utf8(body).unwrap(), "body {}");
+    }
+
+    #[tokio::test]
+    async fn non_utf8_html_is_served_raw() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw: Vec<u8> = vec![0xff, 0xfe, 0xfd];
+        std::fs::write(dir.path().join("index.html"), &raw).unwrap();
+        let app = test_app(dir.path(), 4321);
+        let (status, body) = get(&app, "/").await;
+        assert_eq!(status, 200);
+        assert_eq!(body, raw);
     }
 }
