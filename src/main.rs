@@ -1,12 +1,11 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use clap::Parser;
 use tokio::sync::broadcast;
 
 use server::run_server;
-use watcher::FileWatcher;
+use watcher::watch;
 
 mod server;
 mod watcher;
@@ -32,8 +31,6 @@ async fn main() {
     let args = Args::parse();
 
     let (tx, _rx) = broadcast::channel(100);
-    let watcher = Arc::new(FileWatcher::new(tx.clone()));
-    watcher.watch(&args.dir.to_string_lossy());
-
-    run_server(tx, &args.dir, args.host, args.port).await;
+    watch(tx.clone(), &args.dir);
+    run_server(tx, args.dir, args.host, args.port).await;
 }

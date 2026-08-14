@@ -130,7 +130,7 @@ cargo install --path . --locked --force
 
 - [Rust](https://www.rust-lang.org/)
 - [axum](https://docs.rs/axum)
-- [notify](https://docs.rs/notify)
+- [notify](https://docs.rs/notify) (with a custom debounce loop)
 - [tokio](https://tokio.rs/)
 - `cargo` for package and CLI management
 
