@@ -1,49 +1,39 @@
+use std::net::IpAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use clap::Parser;
+use tokio::sync::broadcast;
+
+use server::run_server;
+use watcher::FileWatcher;
+
 mod server;
 mod watcher;
 
-use server::run_server;
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use watcher::FileWatcher;
+#[derive(Parser)]
+#[command(about = "A tiny static file server with live reload")]
+struct Args {
+    /// Directory to serve and watch
+    #[arg(short, long, default_value = ".")]
+    dir: PathBuf,
+
+    /// Port to listen on
+    #[arg(short, long, default_value = "8080")]
+    port: u16,
+
+    /// Address to bind to
+    #[arg(long, default_value = "127.0.0.1")]
+    host: IpAddr,
+}
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    let mut serve_dir = ".".to_string();
-    let mut port = "8080".to_string();
-    let mut host = "127.0.0.1".to_string();
-
-    for i in 0..args.len() {
-        match args[i].as_str() {
-            "--port" | "-p" => {
-                if let Some(val) = args.get(i + 1) {
-                    port = val.clone();
-                }
-            }
-            "--host" => {
-                if let Some(val) = args.get(i + 1) {
-                    host = val.clone();
-                }
-            }
-            "--dir" | "-d" => {
-                if let Some(val) = args.get(i + 1) {
-                    serve_dir = val.clone();
-                }
-            }
-            _ => {}
-        }
-    }
+    let args = Args::parse();
 
     let (tx, _rx) = broadcast::channel(100);
     let watcher = Arc::new(FileWatcher::new(tx.clone()));
-    watcher.clone().watch(&serve_dir);
+    watcher.watch(&args.dir.to_string_lossy());
 
-    run_server(
-        tx,
-        serve_dir,
-        host.parse().expect("Invalid IP address"),
-        port.parse().expect("Invalid port number"),
-    )
-    .await;
+    run_server(tx, &args.dir, args.host, args.port).await;
 }
