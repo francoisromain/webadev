@@ -27,7 +27,7 @@ fn spawn_server(dir: &Path, port: u16) -> Child {
             "--host",
             "127.0.0.1",
         ])
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to spawn dev_server")
@@ -108,6 +108,9 @@ fn reap(child: &mut Child) -> String {
     if let Some(mut err) = child.stderr.take() {
         let _ = err.read_to_string(&mut out);
     }
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
     out
 }
 
@@ -187,4 +190,74 @@ async fn unrelated_extension_no_reload() {
         count, 0,
         "non-served file triggered reloads; server stderr:\n{stderr}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn port_zero_prints_real_port_and_injects_it() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+
+    let mut server = Command::new(env!("CARGO_BIN_EXE_dev_server"))
+        .args([
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--port",
+            "0",
+            "--host",
+            "127.0.0.1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn dev_server");
+
+    let (tx_stdout, rx_stdout) = std::sync::mpsc::channel::<String>();
+    let mut stdout = server.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut buf = [0u8; 512];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    if tx_stdout.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut out = String::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let port = loop {
+        while let Ok(chunk) = rx_stdout.try_recv() {
+            out.push_str(&chunk);
+        }
+        if let Some(port) = out
+            .split("http://127.0.0.1:")
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|s| s.parse::<u16>().ok())
+        {
+            break port;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "server never printed its URL; stdout: {out}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+
+    wait_ready(port).await;
+    let (_, body) = http_get(port, "/").await.expect("http get failed");
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains(&format!(":{port}/livereload")));
+
+    let stderr = reap(&mut server);
+    reader.join().ok();
+    drop(dir);
+    assert!(stderr.is_empty(), "server stderr:\n{stderr}");
 }

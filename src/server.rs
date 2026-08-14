@@ -23,16 +23,26 @@ struct AppState {
 
 /// Serve files from `folder` on `host:port`, with live reload over WebSocket.
 pub async fn run_server(tx: Sender<String>, folder: impl AsRef<Path>, host: IpAddr, port: u16) {
-    println!("Starting development server at http://{host}:{port}");
+    let listener = tokio::net::TcpListener::bind((host, port))
+        .await
+        .expect("Failed to bind address");
+    let port = listener
+        .local_addr()
+        .expect("Failed to get bound address")
+        .port();
+
+    let url = if host.is_unspecified() {
+        format!("http://127.0.0.1:{port}")
+    } else {
+        format!("http://{host}:{port}")
+    };
+    println!("Starting development server at {url}");
+
     let app = build_app(AppState {
         folder: folder.as_ref().to_path_buf(),
         port,
         tx,
     });
-    let listener = tokio::net::TcpListener::bind((host, port))
-        .await
-        .expect("Failed to bind address");
-
     axum::serve(listener, app).await.expect("Server error");
 }
 

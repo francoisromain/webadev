@@ -37,7 +37,7 @@ cargo build --release
 ```
 
 - `--dir` → directory to serve
-- `--port` → port to run on (default: 8080)
+- `--port` → port to run on (default: 8080, use `0` for a random free port)
 - `--host` → host (use `0.0.0.0` to access from other devices)
 
 ## Folder Structure
