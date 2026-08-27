@@ -1,6 +1,8 @@
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    time::{Duration, Instant},
+};
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast::Sender;

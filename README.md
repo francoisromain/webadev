@@ -87,17 +87,8 @@ Works on mobile/tablets over same WiFi.
 
 ```html
 <script>
-  let first = true;
-  const connect = () => {
-    const ws = new WebSocket(`ws://${location.hostname}:${port}/livereload`);
-    ws.onopen = () => {
-      if (!first) window.location.reload();
-      first = false;
-    };
-    ws.onmessage = () => window.location.reload();
-    ws.onclose = () => setTimeout(connect, 500);
-  };
-  connect();
+    const es = new EventSource('/livereload');
+    es.addEventListener('reload', () => location.reload());
 </script>
 ```
 

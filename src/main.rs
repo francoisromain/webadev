@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use tokio::sync::broadcast;
 
-use server::run_server;
+use server::serve;
 use watcher::watch;
 
 mod server;
@@ -36,5 +36,5 @@ async fn main() {
 
     let (tx, _rx) = broadcast::channel(100);
     watch(tx.clone(), &args.dir);
-    run_server(tx, args.dir, args.host, args.port, !args.no_open).await;
+    serve(tx, args.dir, args.host, args.port, !args.no_open).await;
 }

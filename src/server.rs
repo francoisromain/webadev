@@ -1,28 +1,31 @@
-use std::net::IpAddr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    convert::Infallible,
+    net::IpAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use axum::{
     Router,
     body::Body,
-    extract::{
-        Path as UrlPath, State,
-        ws::{Message, WebSocket, WebSocketUpgrade},
-    },
+    extract::{Path as UrlPath, State},
     http::{StatusCode, header},
-    response::Response,
+    response::{
+        Response,
+        sse::{Event, Sse},
+    },
     routing::get,
 };
-use tokio::sync::broadcast::Sender;
+use futures_util::stream::Stream;
+use tokio::sync::broadcast::{Sender, error::RecvError};
 
 struct AppState {
     folder: PathBuf,
-    port: u16,
     tx: Sender<String>,
 }
 
-/// Serve files from `folder` on `host:port`, with live reload over WebSocket.
-pub async fn run_server(
+/// Serve files from `folder` on `host:port`, with live reload over SSE.
+pub async fn serve(
     tx: Sender<String>,
     folder: impl AsRef<Path>,
     host: IpAddr,
@@ -42,16 +45,15 @@ pub async fn run_server(
     } else {
         format!("http://{host}:{port}")
     };
+
     println!("Starting development server at {url}");
-    if open_browser {
-        if let Err(err) = open::that(&url) {
-            eprintln!("Failed to open browser: {err}");
-        }
+
+    if open_browser && let Err(err) = open::that(&url) {
+        eprintln!("Failed to open browser: {err}");
     }
 
     let app = build_app(AppState {
         folder: folder.as_ref().to_path_buf(),
-        port,
         tx,
     });
     axum::serve(listener, app).await.expect("Server error");
@@ -59,49 +61,36 @@ pub async fn run_server(
 
 fn build_app(state: AppState) -> Router {
     Router::new()
-        .route("/livereload", get(livereload_ws))
+        .route("/livereload", get(livereload_sse))
         .route("/", get(serve_root))
         .route("/{*path}", get(serve_files))
         .with_state(Arc::new(state))
 }
 
-async fn livereload_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
-    let tx = state.tx.clone();
-    ws.on_upgrade(move |socket| handle_ws(socket, tx))
+async fn livereload_sse(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.tx.subscribe();
+    Sse::new(futures_util::stream::unfold(rx, |mut rx| async move {
+        match rx.recv().await {
+            Ok(_) | Err(RecvError::Lagged(_)) => Some((Ok(Event::default().event("reload")), rx)),
+            Err(RecvError::Closed) => None,
+        }
+    }))
 }
 
 async fn serve_root(State(state): State<Arc<AppState>>) -> Response {
-    serve_file(&state.folder, "", state.port).await
+    serve_file(&state.folder, "").await
 }
 
 async fn serve_files(
     State(state): State<Arc<AppState>>,
     UrlPath(path): UrlPath<String>,
 ) -> Response {
-    serve_file(&state.folder, &path, state.port).await
+    serve_file(&state.folder, &path).await
 }
 
-async fn handle_ws(mut socket: WebSocket, tx: Sender<String>) {
-    let mut rx = tx.subscribe();
-    loop {
-        tokio::select! {
-            msg = rx.recv() => {
-                let Ok(_) = msg else { break };
-                if socket.send(Message::Text("reload".into())).await.is_err() {
-                    break;
-                }
-            }
-            incoming = socket.recv() => {
-                let Some(Ok(msg)) = incoming else { break };
-                if matches!(msg, Message::Close(_)) {
-                    break;
-                }
-            }
-        }
-    }
-}
-
-async fn serve_file(folder: &Path, path: &str, port: u16) -> Response {
+async fn serve_file(folder: &Path, path: &str) -> Response {
     if path.split('/').any(|segment| segment == "..") {
         return not_found();
     }
@@ -122,7 +111,7 @@ async fn serve_file(folder: &Path, path: &str, port: u16) -> Response {
     let is_html = file_path.extension().and_then(|e| e.to_str()) == Some("html");
     if is_html {
         match String::from_utf8(bytes) {
-            Ok(html) => html_response(inject_reload_script(&html, port)),
+            Ok(html) => html_response(inject_reload_script(&html)),
             Err(err) => html_response_raw(err.into_bytes()),
         }
     } else {
@@ -161,22 +150,11 @@ fn not_found() -> Response {
         .expect("failed to build response")
 }
 
-fn inject_reload_script(html: &str, port: u16) -> String {
-    let script = format!(
-        r#"<script>
-            let first = true;
-            const connect = () => {{
-                const ws = new WebSocket(`ws://${{location.hostname}}:{port}/livereload`);
-                ws.onopen = () => {{
-                    if (!first) window.location.reload();
-                    first = false;
-                }};
-                ws.onmessage = () => window.location.reload();
-                ws.onclose = () => setTimeout(connect, 500);
-            }};
-            connect();
-        </script>"#,
-    );
+fn inject_reload_script(html: &str) -> String {
+    let script = r#"<script>
+        const es = new EventSource('/livereload');
+        es.addEventListener('reload', () => location.reload());
+    </script>"#;
 
     if html.contains("</body>") {
         html.replace("</body>", &format!("{}\n</body>", script))
@@ -195,11 +173,10 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    fn test_app(dir: &Path, port: u16) -> Router {
+    fn test_app(dir: &Path) -> Router {
         let (tx, _rx) = tokio::sync::broadcast::channel(8);
         build_app(AppState {
             folder: dir.to_path_buf(),
-            port,
             tx,
         })
     }
@@ -225,22 +202,21 @@ mod tests {
     async fn serves_root_index_with_injected_script() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "index.html", "<html><body>hi</body></html>");
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("hi"));
-        assert!(html.contains("4321"));
-        assert!(html.contains("ws://"));
-        assert!(html.contains("onopen"));
-        assert!(html.contains("first"));
+        assert!(html.contains("EventSource"));
+        assert!(html.contains("/livereload"));
+        assert!(html.contains("reload"));
     }
 
     #[tokio::test]
     async fn serves_nested_directory_index() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "sub/index.html", "<html>sub</html>");
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, body) = get(&app, "/sub").await;
         assert_eq!(status, 200);
         assert!(String::from_utf8(body).unwrap().contains("sub"));
@@ -249,7 +225,7 @@ mod tests {
     #[tokio::test]
     async fn missing_file_is_404() {
         let dir = tempfile::tempdir().unwrap();
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, _) = get(&app, "/nope.html").await;
         assert_eq!(status, 404);
     }
@@ -258,7 +234,7 @@ mod tests {
     async fn path_traversal_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "index.html", "<html></html>");
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, _) = get(&app, "/../../etc/passwd").await;
         assert_eq!(status, 404);
     }
@@ -267,7 +243,7 @@ mod tests {
     async fn css_is_served_without_script() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "style.css", "body {}");
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, body) = get(&app, "/style.css").await;
         assert_eq!(status, 200);
         assert_eq!(String::from_utf8(body).unwrap(), "body {}");
@@ -278,7 +254,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let raw: Vec<u8> = vec![0xff, 0xfe, 0xfd];
         std::fs::write(dir.path().join("index.html"), &raw).unwrap();
-        let app = test_app(dir.path(), 4321);
+        let app = test_app(dir.path());
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         assert_eq!(body, raw);

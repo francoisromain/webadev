@@ -1,13 +1,11 @@
-use std::io::Read;
-use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::{
+    io::Read,
+    path::Path,
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
 
-use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
-
-type Ws = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 fn free_port() -> u16 {
     std::net::TcpListener::bind(("127.0.0.1", 0))
@@ -70,32 +68,38 @@ async fn wait_ready(port: u16) {
     panic!("dev_server on port {port} did not become ready in time");
 }
 
-async fn ws_connect(port: u16) -> Ws {
-    let (ws, _) = connect_async(format!("ws://127.0.0.1:{port}/livereload"))
+async fn sse_connect(port: u16) -> tokio::net::TcpStream {
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
-        .expect("ws connect failed");
-    ws
+        .expect("sse connect failed");
+    let req = format!(
+        "GET /livereload HTTP/1.1\r\n\
+         Host: 127.0.0.1:{port}\r\n\
+         Accept: text/event-stream\r\n\
+         Connection: close\r\n\r\n"
+    );
+    stream.write_all(req.as_bytes()).await.unwrap();
+    stream
 }
 
-async fn collect_reloads(ws: &mut Ws, window: Duration) -> usize {
+async fn collect_reloads(stream: &mut tokio::net::TcpStream, window: Duration) -> usize {
     let deadline = Instant::now() + window;
     let mut count = 0;
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 4096];
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
-        match tokio::time::timeout(remaining, ws.next()).await {
-            Ok(Some(Ok(Message::Text(t)))) => {
-                if t == "reload" {
-                    count += 1;
-                }
+        match tokio::time::timeout(remaining, stream.read(&mut tmp)).await {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+            Ok(Ok(n)) => {
+                buf.extend_from_slice(&tmp[..n]);
+                let text = String::from_utf8_lossy(&buf);
+                count += text.matches("event: reload").count();
+                buf.clear();
             }
-            Ok(Some(Ok(Message::Ping(data)))) => {
-                let _ = ws.send(Message::Pong(data)).await;
-            }
-            Ok(Some(Ok(_))) => {}
-            Ok(Some(Err(_))) | Ok(None) | Err(_) => break,
         }
     }
     count
@@ -128,12 +132,12 @@ async fn start_dir() -> (tempfile::TempDir, u16, Child) {
 #[tokio::test(flavor = "multi_thread")]
 async fn reads_produce_no_reload() {
     let (dir, port, mut server) = start_dir().await;
-    let mut ws = ws_connect(port).await;
+    let mut sse = sse_connect(port).await;
     for _ in 0..3 {
         http_get(port, "/").await;
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let count = collect_reloads(&mut ws, Duration::from_millis(500)).await;
+    let count = collect_reloads(&mut sse, Duration::from_millis(500)).await;
     let stderr = reap(&mut server);
     drop(dir);
     assert_eq!(
@@ -145,11 +149,11 @@ async fn reads_produce_no_reload() {
 #[tokio::test(flavor = "multi_thread")]
 async fn write_produces_exactly_one_reload() {
     let (dir, port, mut server) = start_dir().await;
-    let mut ws = ws_connect(port).await;
+    let mut sse = sse_connect(port).await;
     tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
         .await
         .unwrap();
-    let count = collect_reloads(&mut ws, Duration::from_secs(2)).await;
+    let count = collect_reloads(&mut sse, Duration::from_secs(2)).await;
     let stderr = reap(&mut server);
     drop(dir);
     assert_eq!(
@@ -161,13 +165,13 @@ async fn write_produces_exactly_one_reload() {
 #[tokio::test(flavor = "multi_thread")]
 async fn burst_produces_exactly_one_reload() {
     let (dir, port, mut server) = start_dir().await;
-    let mut ws = ws_connect(port).await;
+    let mut sse = sse_connect(port).await;
     for name in ["a.html", "b.html", "c.html"] {
         tokio::fs::write(dir.path().join(name), format!("<html>{name}</html>"))
             .await
             .unwrap();
     }
-    let count = collect_reloads(&mut ws, Duration::from_secs(2)).await;
+    let count = collect_reloads(&mut sse, Duration::from_secs(2)).await;
     let stderr = reap(&mut server);
     drop(dir);
     assert_eq!(
@@ -179,11 +183,11 @@ async fn burst_produces_exactly_one_reload() {
 #[tokio::test(flavor = "multi_thread")]
 async fn unrelated_extension_no_reload() {
     let (dir, port, mut server) = start_dir().await;
-    let mut ws = ws_connect(port).await;
+    let mut sse = sse_connect(port).await;
     tokio::fs::write(dir.path().join("notes.txt"), "x")
         .await
         .unwrap();
-    let count = collect_reloads(&mut ws, Duration::from_millis(700)).await;
+    let count = collect_reloads(&mut sse, Duration::from_millis(700)).await;
     let stderr = reap(&mut server);
     drop(dir);
     assert_eq!(
@@ -254,7 +258,8 @@ async fn port_zero_prints_real_port_and_injects_it() {
     wait_ready(port).await;
     let (_, body) = http_get(port, "/").await.expect("http get failed");
     let html = String::from_utf8_lossy(&body);
-    assert!(html.contains(&format!(":{port}/livereload")));
+    assert!(html.contains("EventSource"));
+    assert!(html.contains("/livereload"));
 
     let stderr = reap(&mut server);
     reader.join().ok();
