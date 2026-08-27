@@ -34,7 +34,12 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
+    // keep a receiver _rx alive so tx.send doesn't error
     let (tx, _rx) = broadcast::channel(100);
-    watch(tx.clone(), &args.dir);
+    if let Err(err) = watch(tx.clone(), &args.dir) {
+        eprintln!("Failed to watch {}: {err}", args.dir.display());
+        std::process::exit(1);
+    }
+
     serve(tx, args.dir, args.host, args.port, !args.no_open).await;
 }
