@@ -28,15 +28,15 @@ struct AppState {
     tx: Sender<String>,
 }
 
-// Serve files from `dir` on `host:port`, with live reload over SSE.
+// Serve files from `dir` on `ip:port`, with live reload over SSE.
 pub async fn serve(
     tx: Sender<String>,
     dir: impl AsRef<Path>,
-    host: IpAddr,
+    ip: IpAddr,
     port: u16,
     browser_open: bool,
 ) {
-    let listener = TcpListener::bind((host, port))
+    let listener = TcpListener::bind((ip, port))
         .await
         .expect("Failed to bind address");
     let port = listener
@@ -44,10 +44,10 @@ pub async fn serve(
         .expect("Failed to get bound address")
         .port();
 
-    let url = if host.is_unspecified() {
+    let url = if ip.is_unspecified() {
         format!("http://127.0.0.1:{port}")
     } else {
-        format!("http://{host}:{port}")
+        format!("http://{ip}:{port}")
     };
 
     println!("Starting development server at {url}");

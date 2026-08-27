@@ -21,9 +21,9 @@ struct Args {
     #[arg(short, long, default_value = "8080")]
     port: u16,
 
-    /// Address to bind to
-    #[arg(long, default_value = "127.0.0.1")]
-    host: IpAddr,
+    /// IP address to bind to
+    #[arg(short, long, default_value = "127.0.0.1")]
+    ip: IpAddr,
 
     /// Do not open the page in the browser on start
     #[arg(long)]
@@ -41,5 +41,5 @@ async fn main() {
         std::process::exit(1);
     }
 
-    serve(tx, args.dir, args.host, args.port, !args.no_open).await;
+    serve(tx, args.dir, args.ip, args.port, !args.no_open).await;
 }

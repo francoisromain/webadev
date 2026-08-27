@@ -33,12 +33,12 @@ cargo build --release
 ### 3. Run the Dev Server
 
 ```bash
-./target/release/dev_server --dir ./client --port 9000 --host 127.0.0.1
+./target/release/dev_server --dir ./client --port 9000 --ip 127.0.0.1
 ```
 
 - `--dir` → directory to serve
 - `--port` → port to run on (default: 8080, use `0` for a random free port)
-- `--host` → host (use `0.0.0.0` to access from other devices)
+- `--ip` → IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--no-open` → do not open the page in the browser on start (opens by default)
 
 ## Folder Structure
@@ -62,7 +62,7 @@ rust-dev-server/
 Run using:
 
 ```bash
-./target/release/dev_server --dir ./client --port 9000 --host 0.0.0.0
+./target/release/dev_server --dir ./client --port 9000 --ip 0.0.0.0
 ```
 
 Then visit:
@@ -78,7 +78,7 @@ Works on mobile/tablets over same WiFi.
 ### Change default host/port:
 
 ```bash
-./dev_server --port 3000 --host 0.0.0.0
+./dev_server --port 3000 --ip 0.0.0.0
 ```
 
 ### Modify injected live reload script:

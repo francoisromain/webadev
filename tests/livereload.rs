@@ -22,7 +22,7 @@ fn spawn_server(dir: &Path, port: u16) -> Child {
             dir.to_str().unwrap(),
             "--port",
             &port.to_string(),
-            "--host",
+            "--ip",
             "127.0.0.1",
         ])
         .stdout(Stdio::piped())
@@ -209,7 +209,7 @@ async fn port_zero_prints_real_port_and_injects_it() {
             dir.path().to_str().unwrap(),
             "--port",
             "0",
-            "--host",
+            "--ip",
             "127.0.0.1",
         ])
         .stdout(Stdio::piped())
