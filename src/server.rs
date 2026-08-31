@@ -28,7 +28,7 @@ struct AppState {
     tx: Sender<String>,
 }
 
-// Serve files from `dir` on `ip:port`, with live reload over SSE.
+/// serve files from `dir` on `ip:port`, with live reload over SSE.
 pub async fn serve(
     tx: Sender<String>,
     dir: impl AsRef<Path>,

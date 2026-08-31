@@ -94,8 +94,8 @@ fn file_extension_check(path: &Path) -> bool {
     }
 }
 
-// when the debounce time elapses:
-// - drain `watcher_event_rx`
+// when watcher_event changes:
+// - drain `watcher_event`
 // - print the changed file paths
 // - broadcast "reload" on `app_event_tx`
 fn event_on_change_emit(
@@ -199,7 +199,7 @@ mod tests {
     use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
 
     #[test]
-    fn reads_are_not_content_changes() {
+    fn event_kind_check_reads_are_false() {
         assert!(!event_kind_check(&EventKind::Access(AccessKind::Open(
             AccessMode::Any
         ))));
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_creates_and_removes_are_content_changes() {
+    fn event_kind_check_writes_creates_and_removes_are_true() {
         assert!(event_kind_check(&EventKind::Modify(ModifyKind::Data(
             DataChange::Any
         ))));
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn reload_worthy_extensions() {
+    fn file_extension_check_only_web_files_are_true() {
         for ext in ["html", "css", "js", "jsx", "ts", "tsx"] {
             assert!(file_extension_check(Path::new(&format!("a.{ext}"))));
         }
