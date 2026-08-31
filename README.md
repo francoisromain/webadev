@@ -1,7 +1,6 @@
 # Webadev and reeloooaad!
 
-> A tiny dev web server with live reload.
-> Written in Rust.
+> A tiny dev web server with live reload, written in Rust.
 
 ## Features
 
@@ -37,22 +36,6 @@ cargo build --release
 - `--ip` → IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--no-open` → do not open the page in the browser on start (opens by default)
 - `--header` → additional HTTP header on every response (repeatable), e.g. `--header "Access-Control-Allow-Origin: *"`
-
-## Folder structure
-
-```
-webadev/
-├── src/
-│   ├── main.rs              # CLI entrypoint.
-│   ├── server.rs            # Axum server, routes, HTML injection.
-│   └── watcher.rs           # File change detection using notify.
-├── client/
-│   ├── index.html           # Starter UI.
-│   ├── styles.css
-│   └── index.js
-├── Cargo.toml
-└── README.md
-```
 
 ## Accessing from Another device (LAN)
 
@@ -119,21 +102,6 @@ webadev -p 9000    # custom port
 cargo install --path . --locked --force
 ```
 
-## Tips
-
-- Supports any static file: `.html`, `.css`, `.js`, `.png`, etc.
-- No need to write the reload script, it’s injected automatically.
-- Add your own middleware by editing `server.rs`
-- Fast rebuilds with `cargo watch -x run`
-
-## Built With
-
-- [Rust](https://www.rust-lang.org/)
-- [axum](https://docs.rs/axum)
-- [notify](https://docs.rs/notify) (with a custom debounce loop)
-- [open](https://crates.io/crates/open) (opens the browser on start)
-- [tokio](https://tokio.rs/)
-
 ## Similar tools
 
 - [devserver](https://crates.io/crates/devserver)
@@ -143,14 +111,15 @@ cargo install --path . --locked --force
 
 ## Inspiration
 
-This project was inspired by [rust-live-server](https://github.com/kartikmehta8/rust-live-server.git) by [Kartik Mehta](https://github.com/kartikmehta8). Thank you!
+This project was inspired by [rust-live-server](https://github.com/kartikmehta8/rust-live-server.git) by [Kartik Mehta](https://github.com/kartikmehta8). 
+Thank you!
 
 It's been fully re-written. Here are the main changes:
 
 - **Replace Warp with Axum**
 - **Replace WebSocket with SSE/eventsource**
-- **Add features to the server**: reconnect and reload-on-reconnect.
+- **Add features to the server**: reconnect and reload-on-reconnect, header option.
 - **Add features to the watcher**: debounce, path dedup, kind/extension filtering.
-- **Fix for reliability**: fallback to index for empty URL, serve non-UTF8 HTML, bind-first and report real port, open browser by default.
+- **Fixes**: fallback to index for empty URL, serve non-UTF8 HTML, bind-first and report real port, open browser by default.
 - **CLI**: use clap crate parser.
 - **Tests**: add unit tests on watcher and server, plus e2e tests.

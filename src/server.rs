@@ -87,7 +87,7 @@ fn app_build(state: AppState) -> Router {
 }
 
 // parse `Name: value` header strings into axum header pairs
-// - `:` separator only
+// - `:` separator
 // - empty names/values and control chars are rejected (header-injection guard)
 fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, String> {
     raw.iter()
