@@ -16,7 +16,7 @@ fn free_port() -> u16 {
 }
 
 fn spawn_server(dir: &Path, port: u16) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_dev_server"))
+    Command::new(env!("CARGO_BIN_EXE_webadev"))
         .args([
             "--dir",
             dir.to_str().unwrap(),
@@ -28,7 +28,7 @@ fn spawn_server(dir: &Path, port: u16) -> Child {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn dev_server")
+        .expect("failed to spawn webadev")
 }
 
 async fn http_get(port: u16, path: &str) -> Option<(u16, Vec<u8>)> {
@@ -65,7 +65,7 @@ async fn wait_ready(port: u16) {
         }
         tokio::time::sleep(Duration::from_millis(30)).await;
     }
-    panic!("dev_server on port {port} did not become ready in time");
+    panic!("webadev on port {port} did not become ready in time");
 }
 
 async fn sse_connect(port: u16) -> tokio::net::TcpStream {
@@ -203,7 +203,7 @@ async fn port_zero_prints_real_port_and_injects_it() {
         .await
         .unwrap();
 
-    let mut server = Command::new(env!("CARGO_BIN_EXE_dev_server"))
+    let mut server = Command::new(env!("CARGO_BIN_EXE_webadev"))
         .args([
             "--dir",
             dir.path().to_str().unwrap(),
@@ -215,7 +215,7 @@ async fn port_zero_prints_real_port_and_injects_it() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn dev_server");
+        .expect("failed to spawn webadev");
 
     let (tx_stdout, rx_stdout) = std::sync::mpsc::channel::<String>();
     let mut stdout = server.stdout.take().unwrap();
