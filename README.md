@@ -36,6 +36,7 @@ cargo build --release
 - `--port` → port to run on (default: 8080, use `0` for a random free port)
 - `--ip` → IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--no-open` → do not open the page in the browser on start (opens by default)
+- `--header` → additional HTTP header on every response (repeatable), e.g. `--header "Access-Control-Allow-Origin: *"`
 
 ## Folder structure
 
@@ -86,6 +87,12 @@ Works on mobile/tablets over same WiFi.
     const es = new EventSource('/livereload');
     es.addEventListener('reload', () => location.reload());
 </script>
+```
+
+### Use with an external API (CORS)
+
+```bash
+webadev --dir ./client --header "Access-Control-Allow-Origin: http://localhost:5173"
 ```
 
 ### Use globally

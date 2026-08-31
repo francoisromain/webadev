@@ -2,6 +2,7 @@ use std::{
     convert::Infallible,
     net::IpAddr,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -9,7 +10,8 @@ use axum::{
     Router,
     body::{Body, Bytes},
     extract::{Path as UrlPath, State},
-    http::{StatusCode, header},
+    http::{HeaderName, HeaderValue, Request, StatusCode, header},
+    middleware::{self, Next},
     response::{
         Response,
         sse::{Event, Sse},
@@ -26,6 +28,7 @@ use tokio::{
 struct AppState {
     dir: PathBuf,
     tx: Sender<String>,
+    headers: Vec<(HeaderName, HeaderValue)>,
 }
 
 /// serve files from `dir` on `ip:port`, with live reload over SSE.
@@ -34,8 +37,17 @@ pub async fn serve(
     dir: impl AsRef<Path>,
     ip: IpAddr,
     port: u16,
+    headers: &[String],
     browser_open: bool,
 ) {
+    let headers = match headers_parse(headers) {
+        Ok(headers) => headers,
+        Err(err) => {
+            eprintln!("Invalid --header: {err}");
+            std::process::exit(1);
+        }
+    };
+
     let listener = TcpListener::bind((ip, port))
         .await
         .expect("Failed to bind address");
@@ -59,16 +71,55 @@ pub async fn serve(
     let app = app_build(AppState {
         dir: dir.as_ref().to_path_buf(),
         tx,
+        headers,
     });
     axum::serve(listener, app).await.expect("Server error");
 }
 
 fn app_build(state: AppState) -> Router {
+    let state = Arc::new(state);
     Router::new()
         .route("/livereload", get(livereload))
         .route("/", get(root_serve))
         .route("/{*path}", get(files_serve))
-        .with_state(Arc::new(state))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, headers_middleware))
+}
+
+// parse `Name: value` header strings into axum header pairs
+// - `:` separator only
+// - empty names/values and control chars are rejected (header-injection guard)
+fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, String> {
+    raw.iter()
+        .map(|item| {
+            let (name, value) = item
+                .split_once(':')
+                .ok_or_else(|| format!("missing ':' separator in `{item}`"))?;
+            let name = name.trim();
+            let value = value.trim();
+            if name.is_empty() {
+                return Err(format!("empty header name in `{item}`"));
+            }
+            let name = HeaderName::from_str(name)
+                .map_err(|_| format!("invalid header name in `{item}`"))?;
+            let value = HeaderValue::from_str(value)
+                .map_err(|_| format!("invalid header value in `{item}`"))?;
+            Ok((name, value))
+        })
+        .collect()
+}
+
+// attach user-supplied `--header`s to every response
+async fn headers_middleware(
+    State(state): State<Arc<AppState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    for (name, value) in &state.headers {
+        response.headers_mut().insert(name.clone(), value.clone());
+    }
+    response
 }
 
 async fn livereload(
@@ -167,7 +218,7 @@ mod tests {
 
     use axum::{
         body::Body,
-        http::{Request, StatusCode},
+        http::{HeaderMap, Request, StatusCode},
     };
     use http_body_util::BodyExt;
     use tempfile::tempdir;
@@ -175,10 +226,16 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_app(dir: &Path) -> Router {
+        test_app_with_headers(dir, &[])
+    }
+
+    fn test_app_with_headers(dir: &Path, headers: &[&str]) -> Router {
         let (tx, _rx) = broadcast::channel(8);
+        let headers = headers.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         app_build(AppState {
             dir: dir.to_path_buf(),
             tx,
+            headers: headers_parse(&headers).unwrap(),
         })
     }
 
@@ -259,5 +316,59 @@ mod tests {
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         assert_eq!(body, raw);
+    }
+
+    async fn headers_get(app: &Router, uri: &str) -> HeaderMap {
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        resp.into_parts().0.headers
+    }
+
+    #[tokio::test]
+    async fn custom_header_is_applied_to_html() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_with_headers(dir.path(), &["X-Custom: yes"]);
+        let headers = headers_get(&app, "/").await;
+        assert_eq!(headers["X-Custom"], "yes");
+    }
+
+    #[tokio::test]
+    async fn custom_header_is_applied_to_static_file() {
+        let dir = tempdir().unwrap();
+        write(dir.path().join("app.js"), "let x = 1;").unwrap();
+        let app = test_app_with_headers(dir.path(), &["X-Custom: yes"]);
+        let headers = headers_get(&app, "/app.js").await;
+        assert_eq!(headers["X-Custom"], "yes");
+    }
+
+    #[tokio::test]
+    async fn multiple_custom_headers_are_all_applied() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_with_headers(dir.path(), &["X-A: 1", "X-B: 2"]);
+        let headers = headers_get(&app, "/").await;
+        assert_eq!(headers["X-A"], "1");
+        assert_eq!(headers["X-B"], "2");
+    }
+
+    #[tokio::test]
+    async fn custom_header_overrides_existing_value() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_with_headers(dir.path(), &["Cache-Control: max-age=60"]);
+        let headers = headers_get(&app, "/").await;
+        assert_eq!(headers["Cache-Control"], "max-age=60");
+    }
+
+    #[test]
+    fn invalid_header_is_rejected() {
+        assert!(headers_parse(&["Bad\nHeader: x".to_string()]).is_err());
+        assert!(headers_parse(&["NoSeparator".to_string()]).is_err());
+        assert!(headers_parse(&[": novalue".to_string()]).is_err());
+        assert!(headers_parse(&["X-Foo:".to_string()]).is_ok());
     }
 }

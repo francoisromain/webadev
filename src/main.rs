@@ -28,6 +28,10 @@ struct Args {
     /// do not open the page in the browser on start
     #[arg(long)]
     no_open: bool,
+
+    /// additional HTTP header to send with every response, e.g. `--header "Access-Control-Allow-Origin: *"`
+    #[arg(long)]
+    header: Vec<String>,
 }
 
 #[tokio::main]
@@ -41,5 +45,13 @@ async fn main() {
         std::process::exit(1);
     }
 
-    serve(tx, args.dir, args.ip, args.port, !args.no_open).await;
+    serve(
+        tx,
+        args.dir,
+        args.ip,
+        args.port,
+        &args.header,
+        !args.no_open,
+    )
+    .await;
 }
