@@ -30,7 +30,6 @@
         <li><a href="#features">Features</a></li>
         <li><a href="#usage">Usage</a></li>
         <li><a href="#local-installation">Local installation</a></li>
-        <li><a href="#inspiration">Inspiration</a></li>
         <li><a href="#similar-tools">Similar tools</a></li>
       </ul>
     </nav>
@@ -40,7 +39,8 @@
     <h2 id="features">Features</h2>
     <ul>
       <li>Serve a static folder (HTML/CSS/JS)</li>
-      <li>Live reload in the browser on file change</li>
+      <li>Live reload in the browser on file change (debounced by 200ms)</li>
+      <li>CSS hot-reload (no full page reload)</li>
       <li>Smart script injection (no manual setup needed)</li>
       <li>Auto-reconnect (reloads the page when the server restarts)</li>
       <li>Custom IP/port support</li>
@@ -114,7 +114,7 @@ cargo install --path . --locked --force</code></pre>
       <ul>
         <li><a href="https://crates.io/crates/devserver">devserver</a></li>
         <li><a href="https://crates.io/crates/live-server">live-server</a></li>
-        <li><a href="https://crates.io/crates/servio">webdev</a></li>
+        <li><a href="https://crates.io/crates/servio">servio</a></li>
       </ul>
   </main>
 

@@ -13,7 +13,8 @@
 ## Features
 
 - Serve a static folder (HTML/CSS/JS)
-- Live reload in the browser on file change
+- Live reload in the browser on file change (debounced by 200ms)
+- CSS hot-reload (no full page reload)
 - Smart script injection (no manual setup needed)
 - Auto-reconnect (reloads the page when the server restarts)
 - Custom IP/port support

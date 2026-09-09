@@ -128,16 +128,15 @@ async fn livereload(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.tx.subscribe();
     Sse::new(unfold(rx, |mut rx| async move {
-        match rx.recv().await {
-            // a `data:` line is required:
-            // - SSE specs (WHATWG HTML §9.2.6): events whith no `data:` line are dropped; the line's value could be empty
-            // - axum's `Event::data` silently skips empty input, so the field is never emitted
-            // Here we use data:reload
-            Ok(_) | Err(RecvError::Lagged(_)) => {
-                Some((Ok(Event::default().event("reload").data("reload")), rx))
-            }
-            Err(RecvError::Closed) => None,
-        }
+        let message = match rx.recv().await {
+            Ok(msg) => msg,
+            Err(RecvError::Lagged(_)) => "page".to_string(),
+            Err(RecvError::Closed) => return None,
+        };
+        // a `data:` line is required:
+        // - SSE specs (WHATWG HTML §9.2.6): events whith no `data:` line are dropped; the line's value could be empty
+        // - axum's `Event::data` silently skips empty input, so the field is never emitted
+        Some((Ok(Event::default().event(&message).data(&message)), rx))
     }))
     .keep_alive(
         KeepAlive::new()
@@ -221,7 +220,15 @@ fn js_script_inject(html: &str) -> String {
                 location.reload();
             }
         });
-        es.addEventListener('reload', () => location.reload());
+        es.addEventListener('page', () => location.reload());
+        es.addEventListener('css', () => {
+            document.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
+                const url = new URL(link.href, location.href);
+                url.searchParams.set('t', Date.now());
+                link.href = url.toString();
+            });
+            console.log('[webadev] css hot-reloaded');
+        });
         es.addEventListener('error', () => console.warn('[webadev] live reload connection lost', es.readyState));
     </script>"#;
 

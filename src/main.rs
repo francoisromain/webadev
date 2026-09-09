@@ -45,13 +45,5 @@ async fn main() {
         std::process::exit(1);
     }
 
-    serve(
-        tx,
-        args.dir,
-        args.ip,
-        args.port,
-        &args.header,
-        args.open,
-    )
-    .await;
+    serve(tx, args.dir, args.ip, args.port, &args.header, args.open).await;
 }

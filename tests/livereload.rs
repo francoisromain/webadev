@@ -98,8 +98,8 @@ async fn collect_reloads(stream: &mut tokio::net::TcpStream, window: Duration) -
             Ok(Ok(n)) => {
                 buf.extend_from_slice(&tmp[..n]);
                 let text = String::from_utf8_lossy(&buf);
-                count += text.matches("event: reload").count();
-                has_data |= text.contains("data: reload");
+                count += text.matches("event: page").count();
+                has_data |= text.contains("data: page");
                 buf.clear();
             }
         }
@@ -199,6 +199,62 @@ async fn unrelated_extension_no_reload() {
     assert_eq!(
         count, 0,
         "non-served file triggered reloads; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn css_write_produces_css_event() {
+    let (dir, port, mut server) = start_dir().await;
+    let mut sse = sse_connect(port).await;
+    tokio::fs::write(dir.path().join("style.css"), "body {}")
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut found_css = false;
+    let mut found_page = false;
+    let mut tmp = [0u8; 4096];
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, sse.read(&mut tmp)).await {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+            Ok(Ok(n)) => {
+                let text = String::from_utf8_lossy(&tmp[..n]);
+                found_css |= text.contains("event: css");
+                found_page |= text.contains("event: page");
+            }
+        }
+    }
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert!(
+        found_css,
+        "CSS change did not produce event:css; server stderr:\n{stderr}"
+    );
+    assert!(
+        !found_page,
+        "CSS change produced event:page (should be event:css); server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn css_and_html_write_produce_full_reload() {
+    let (dir, port, mut server) = start_dir().await;
+    let mut sse = sse_connect(port).await;
+    tokio::fs::write(dir.path().join("style.css"), "body {}")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert_eq!(
+        count, 1,
+        "expected 1 reload for mixed css+html, got {count}; server stderr:\n{stderr}"
     );
 }
 

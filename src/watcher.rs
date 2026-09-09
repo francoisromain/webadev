@@ -17,7 +17,7 @@ const IDLE_TIME: Duration = Duration::from_secs(3600);
 
 /// run a background thread
 /// and watch a directory, on each change:
-/// - broadcasts "reload" on `app_event_tx`
+/// - broadcasts "css" if only css files changed, else "page" on `app_event_tx`
 /// - prints the changed file paths
 pub fn watch(
     app_event_tx: broadcast::Sender<String>,
@@ -97,7 +97,7 @@ fn file_extension_check(path: &Path) -> bool {
 // when watcher_event changes:
 // - drain `watcher_event`
 // - print the changed file paths
-// - broadcast "reload" on `app_event_tx`
+// - broadcast "css" or "page" on `app_event_tx`
 fn event_on_change_emit(
     watcher_event_rx: Receiver<Result<Event, notify::Error>>,
     app_event_tx: broadcast::Sender<String>,
@@ -105,8 +105,16 @@ fn event_on_change_emit(
     let mut changes = Changes::default();
 
     while let Some(paths) = changes_wait(&watcher_event_rx, &mut changes) {
-        file_paths_print(&paths);
-        let _ = app_event_tx.send("reload".to_string());
+        let css_only = paths
+            .iter()
+            .all(|p| p.extension().and_then(|e| e.to_str()) == Some("css"));
+        file_paths_print(&paths, css_only);
+        let msg = if css_only {
+            "css".to_string()
+        } else {
+            "page".to_string()
+        };
+        let _ = app_event_tx.send(msg);
     }
 }
 
@@ -135,11 +143,16 @@ fn changes_wait(
     }
 }
 
-fn file_paths_print(paths: &[PathBuf]) {
+fn file_paths_print(paths: &[PathBuf], css_only: bool) {
     let cwd = std::env::current_dir().unwrap_or_default();
+    let message = if css_only {
+        "reloading stylesheets"
+    } else {
+        "reloading page"
+    };
     for path in paths {
         let rel = path.strip_prefix(&cwd).unwrap_or(path);
-        println!("Change detected: {} — reloading browser", rel.display());
+        println!("Change detected: {} — {message}", rel.display());
     }
 }
 
