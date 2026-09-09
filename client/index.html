@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Webadev — tiny web dev server with live reload</title>
+  <link rel="icon" type="image/svg+xml" href="./webadev.svg" />
+  <link rel="alternate icon" href="./favicon.ico" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <header>
+    <h1 id="top">Webadev</h1>
+
+    <p align="center">
+      <br>
+      <a href="https://github.com/francoisromain/webadev">
+        <img src="https://raw.githubusercontent.com/francoisromain/webadev/main/client/webadev.svg" alt="Webadev logo"
+          width="160">
+      </a>
+      <br>
+    </p>
+
+
+    <p>A tiny web dev server with live reload, written in Rust.</p>
+    <nav>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="#local-installation">Local installation</a></li>
+        <li><a href="#inspiration">Inspiration</a></li>
+        <li><a href="#similar-tools">Similar tools</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <h2 id="features">Features</h2>
+    <ul>
+      <li>Serve a static folder (HTML/CSS/JS)</li>
+      <li>Live reload in the browser on file change</li>
+      <li>Smart script injection (no manual setup needed)</li>
+      <li>Auto-reconnect (reloads the page when the server restarts)</li>
+      <li>Custom IP/port support</li>
+    </ul>
+
+    <h2 id="usage">Usage</h2>
+
+    <h3 id="install-and-run">Install and run</h3>
+    <pre><code>cargo install webadev
+
+# serve the current directory
+webadev</code></pre>
+
+    <h3 id="options">Options</h3>
+    <ul>
+      <li><code>--dir</code> / <code>-d</code>: directory to serve</li>
+      <li>
+        <code>--port</code> / <code>-p</code>: port to run on (default: 8080,
+        use <code>0</code> for a random free port)
+      </li>
+      <li>
+        <code>--ip</code> / <code>-i</code>: IP address to bind to (default:
+        127.0.0.1, use <code>0.0.0.0</code> to access from other devices)
+      </li>
+      <li>
+        <code>--open</code> / <code>-o</code>: open the page in the browser on start
+        (false by default)
+      </li>
+      <li>
+        <code>--header</code>: additional HTTP header on every response
+        (repeatable), e.g.
+        <code>--header "Access-Control-Allow-Origin: *"</code>
+      </li>
+    </ul>
+
+    <h3 id="examples">Examples</h3>
+    <p>Use with an external API (CORS).</p>
+    <pre><code>webadev --header "Access-Control-Allow-Origin: http://localhost:5173"</code></pre>
+    <p>
+      Accessing from another device (LAN) (on mobile/tablets over same WiFi).
+    </p>
+    <pre><code>./target/release/webadev --dir ./client --port 9000 --ip 0.0.0.0
+
+# visit: http://&lt;your-local-ip&gt;:9000</code></pre>
+
+    <h3 id="local-installation">Local installation</h2>
+
+      <pre><code># Clone the repo
+git clone https://github.com/francoisromain/webadev.git
+cd webadev
+
+# Build the project
+cargo build --release
+
+# Run the server
+./target/release/webadev --dir ./client --header "Access-Control-Allow-Origin: *"
+
+# Install globally from the local package
+# Compiles and copies the binary to `~/.cargo/bin/webadev`
+cargo install --path . --locked
+
+# Use from anywhere.
+# serves the current directory on 127.0.0.1:8080
+cd ~/some/project
+webadev           
+
+# Update later after source changes
+cargo install --path . --locked --force</code></pre>
+
+      <h2 id="similar-tools">Similar tools</h2>
+      <ul>
+        <li><a href="https://crates.io/crates/devserver">devserver</a></li>
+        <li><a href="https://crates.io/crates/live-server">live-server</a></li>
+        <li><a href="https://crates.io/crates/servio">webdev</a></li>
+      </ul>
+  </main>
+
+  <h2 id="version-history">Version history</h2>
+  <button id="load-commits" type="button">Load commits</button>
+  <ul id="commit-list"></ul>
+
+  <footer>
+    <p>&copy; 2026 François Romain</p>
+  </footer>
+
+  <script type="text/javascript" src="./index.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,29 @@
+[package]
+name = "webadev"
+version = "0.1.2"
+edition = "2024"
+description = "A tiny web dev server with live reload"
+license = "MIT"
+repository = "https://github.com/francoisromain/webadev"
+homepage = "https://github.com/francoisromain/webadev"
+rust-version = "1.85"
+keywords = ["server", "live-reload", "web", "development", "watch"]
+categories = ["development-tools"]
+exclude = ["client/**", "sessions/**"]
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = [
+    "tokio",
+    "http1",
+] }
+clap = { version = "4", features = ["derive"] }
+futures-util = "0"
+mime_guess = "2"
+notify = "8"
+open = "5"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+http-body-util = "0"
+tempfile = "3"
+tower = { version = "0", features = ["util"] }
