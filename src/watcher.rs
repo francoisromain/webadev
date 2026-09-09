@@ -16,7 +16,7 @@ const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 const IDLE_TIME: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ReloadType {
+enum ReloadType {
     Css,
     Page,
 }
@@ -32,9 +32,9 @@ impl ReloadType {
 }
 
 /// run a background thread
-/// and watch a directory, on each change:
-/// - broadcasts a `ReloadType` name on `app_event_tx`
-/// - prints the changed file paths
+/// and watch a directory. When files change:
+/// - broadcast "css" or "page" on `app_event_tx`
+/// - print the changed file paths
 pub fn watch(
     app_event_tx: broadcast::Sender<String>,
     dir: impl AsRef<Path>,

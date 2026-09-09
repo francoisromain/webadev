@@ -11,7 +11,7 @@ use server::serve;
 use watcher::watch;
 
 #[derive(Parser)]
-#[command(about = "A tiny static file server with live reload")]
+#[command(about = "A tiny static file server with live reload", version)]
 struct Args {
     /// directory to serve and watch
     #[arg(short, long, default_value = ".")]
