@@ -15,9 +15,25 @@ const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 // events wake it instantly
 const IDLE_TIME: Duration = Duration::from_secs(3600);
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReloadType {
+    Css,
+    Page,
+}
+
+impl ReloadType {
+    /// name used both as the SSE event name/`data:` payload and in the terminal log
+    pub fn name_get(self) -> &'static str {
+        match self {
+            Self::Css => "css",
+            Self::Page => "page",
+        }
+    }
+}
+
 /// run a background thread
 /// and watch a directory, on each change:
-/// - broadcasts "css" if only css files changed, else "page" on `app_event_tx`
+/// - broadcasts a `ReloadType` name on `app_event_tx`
 /// - prints the changed file paths
 pub fn watch(
     app_event_tx: broadcast::Sender<String>,
@@ -105,16 +121,22 @@ fn event_on_change_emit(
     let mut changes = Changes::default();
 
     while let Some(paths) = changes_wait(&watcher_event_rx, &mut changes) {
-        let css_only = paths
+        let reload_type = reload_type_find(&paths);
+        file_paths_print(&paths, reload_type);
+        let _ = app_event_tx.send(reload_type.name_get().to_string());
+    }
+}
+
+fn reload_type_find(paths: &[PathBuf]) -> ReloadType {
+    let css_only = !paths.is_empty()
+        && paths
             .iter()
             .all(|p| p.extension().and_then(|e| e.to_str()) == Some("css"));
-        file_paths_print(&paths, css_only);
-        let msg = if css_only {
-            "css".to_string()
-        } else {
-            "page".to_string()
-        };
-        let _ = app_event_tx.send(msg);
+
+    if css_only {
+        ReloadType::Css
+    } else {
+        ReloadType::Page
     }
 }
 
@@ -143,13 +165,9 @@ fn changes_wait(
     }
 }
 
-fn file_paths_print(paths: &[PathBuf], css_only: bool) {
+fn file_paths_print(paths: &[PathBuf], reload_type: ReloadType) {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let message = if css_only {
-        "reloading stylesheets"
-    } else {
-        "reloading page"
-    };
+    let message = format!("reloading {}", reload_type.name_get());
     for path in paths {
         let rel = path.strip_prefix(&cwd).unwrap_or(path);
         println!("Change detected: {} — {message}", rel.display());
@@ -241,6 +259,29 @@ mod tests {
         assert!(!file_extension_check(Path::new("a.log")));
         assert!(!file_extension_check(Path::new("index")));
         assert!(!file_extension_check(Path::new(".hidden")));
+    }
+
+    #[test]
+    fn reload_type_find_css_only_is_css() {
+        let paths = vec![PathBuf::from("a.css"), PathBuf::from("b.css")];
+        assert_eq!(reload_type_find(&paths), ReloadType::Css);
+    }
+
+    #[test]
+    fn reload_type_find_mixed_body_is_page() {
+        let paths = vec![PathBuf::from("a.css"), PathBuf::from("index.html")];
+        assert_eq!(reload_type_find(&paths), ReloadType::Page);
+    }
+
+    #[test]
+    fn reload_type_find_single_non_css_is_page() {
+        let paths = vec![PathBuf::from("app.js")];
+        assert_eq!(reload_type_find(&paths), ReloadType::Page);
+    }
+
+    #[test]
+    fn reload_type_find_empty_is_page() {
+        assert_eq!(reload_type_find(&[]), ReloadType::Page);
     }
 
     fn event(kind: EventKind, paths: &[&str]) -> Event {
