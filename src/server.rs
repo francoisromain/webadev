@@ -28,13 +28,13 @@ use tokio::{
 
 struct AppState {
     dir: PathBuf,
-    tx: Sender<String>,
+    tx: Sender<(String, Vec<PathBuf>)>,
     headers: Vec<(HeaderName, HeaderValue)>,
 }
 
 /// serve files from `dir` on `ip:port`, with live reload over SSE.
 pub async fn serve(
-    tx: Sender<String>,
+    tx: Sender<(String, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
     ip: IpAddr,
     port: u16,
@@ -129,7 +129,7 @@ async fn livereload(
     let rx = state.tx.subscribe();
     Sse::new(unfold(rx, |mut rx| async move {
         let message = match rx.recv().await {
-            Ok(msg) => msg,
+            Ok((name, _)) => name,
             Err(RecvError::Lagged(_)) => "page".to_string(),
             Err(RecvError::Closed) => return None,
         };

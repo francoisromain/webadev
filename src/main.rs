@@ -38,12 +38,27 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    // _rx keep a receiver alive so tx.send doesn't error
-    let (tx, _rx) = broadcast::channel(100);
+    // rx keep a receiver alive so tx.send doesn't error
+    let (tx, mut rx) = broadcast::channel(100);
     if let Err(err) = watch(tx.clone(), &args.dir) {
         eprintln!("Failed to watch {}: {err}", args.dir.display());
         std::process::exit(1);
     }
 
+    tokio::spawn(async move {
+        while let Ok((name, paths)) = rx.recv().await {
+            file_paths_print(&paths, &name);
+        }
+    });
+
     serve(tx, args.dir, args.ip, args.port, &args.header, args.open).await;
+}
+
+fn file_paths_print(paths: &[PathBuf], reload_type: &str) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let message = format!("reloading {reload_type}");
+    for path in paths {
+        let rel = path.strip_prefix(&cwd).unwrap_or(path);
+        println!("Change detected: {} — {message}", rel.display());
+    }
 }

@@ -33,10 +33,9 @@ impl ReloadType {
 
 /// run a background thread
 /// and watch a directory. When files change:
-/// - broadcast "css" or "page" on `app_event_tx`
-/// - print the changed file paths
+/// - broadcast the reload name and the changed paths on `app_event_tx`
 pub fn watch(
-    app_event_tx: broadcast::Sender<String>,
+    app_event_tx: broadcast::Sender<(String, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
 ) -> Result<(), notify::Error> {
     let dir = dir.as_ref().to_path_buf();
@@ -112,18 +111,16 @@ fn file_extension_check(path: &Path) -> bool {
 
 // when watcher_event changes:
 // - drain `watcher_event`
-// - print the changed file paths
-// - broadcast "css" or "page" on `app_event_tx`
+// - broadcast the reload name and the changed paths on `app_event_tx`
 fn event_on_change_emit(
     watcher_event_rx: Receiver<Result<Event, notify::Error>>,
-    app_event_tx: broadcast::Sender<String>,
+    app_event_tx: broadcast::Sender<(String, Vec<PathBuf>)>,
 ) {
     let mut changes = Changes::default();
 
     while let Some(paths) = changes_wait(&watcher_event_rx, &mut changes) {
         let reload_type = reload_type_find(&paths);
-        file_paths_print(&paths, reload_type);
-        let _ = app_event_tx.send(reload_type.name_get().to_string());
+        let _ = app_event_tx.send((reload_type.name_get().to_string(), paths));
     }
 }
 
@@ -162,15 +159,6 @@ fn changes_wait(
             // sender dropped, we're done
             Err(RecvTimeoutError::Disconnected) => return None,
         }
-    }
-}
-
-fn file_paths_print(paths: &[PathBuf], reload_type: ReloadType) {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let message = format!("reloading {}", reload_type.name_get());
-    for path in paths {
-        let rel = path.strip_prefix(&cwd).unwrap_or(path);
-        println!("Change detected: {} — {message}", rel.display());
     }
 }
 
