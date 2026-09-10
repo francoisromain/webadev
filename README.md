@@ -19,9 +19,7 @@
 - Auto-reconnect (reloads the page when the server restarts)
 - Custom IP/port support
 
-## Usage
-
-### Install and run
+## CLI
 
 ```bash
 cargo install webadev
@@ -54,7 +52,38 @@ Accessing from another device (LAN) (on mobile/tablets over same WiFi).
 # visit: http://<your-local-ip>:9000
 ```
 
-### Local installation
+## Library
+
+```rust
+use std::net::IpAddr;
+use std::path::PathBuf;
+use tokio::sync::broadcast;
+
+use webadev::{Config, serve, watch};
+
+#[tokio::main]
+async fn main() {
+    let (tx, _rx) = broadcast::channel(100);
+    if let Err(err) = watch(tx.clone(), ".".into()) {
+        panic!("Failed to watch: {err}");
+    }
+
+    let config = Config {
+        dir: PathBuf::from("."),
+        ip: IpAddr::from([127, 0, 0, 1]),
+        port: 8080,
+        headers: vec![],
+        open: false,
+    };
+
+    serve(tx, config).await.expect("server error");
+}
+```
+
+The `broadcast` channel notifies subscribers of reload events:
+`(String, Vec<PathBuf>)` with `"css"` (CSS-only) or `"page"` (full reload) plus the changed paths.
+
+## Local installation
 
 ```bash
 # Clone the repo
@@ -79,6 +108,7 @@ webadev
 # Update later after source changes
 cargo install --path . --locked --force
 ```
+
 
 ## Similar tools
 

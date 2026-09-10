@@ -4,11 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use tokio::sync::broadcast;
 
-mod server;
-mod watcher;
-
-use server::serve;
-use watcher::watch;
+use webadev::{Config, serve, watch};
 
 #[derive(Parser)]
 #[command(about = "A tiny static file server with live reload", version)]
@@ -51,7 +47,18 @@ async fn main() {
         }
     });
 
-    serve(tx, args.dir, args.ip, args.port, &args.header, args.open).await;
+    let config = Config {
+        dir: args.dir,
+        ip: args.ip,
+        port: args.port,
+        headers: args.header,
+        open: args.open,
+    };
+
+    if let Err(err) = serve(tx, config).await {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
 }
 
 fn file_paths_print(paths: &[PathBuf], reload_type: &str) {

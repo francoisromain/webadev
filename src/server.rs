@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -32,49 +32,62 @@ struct AppState {
     headers: Vec<(HeaderName, HeaderValue)>,
 }
 
-/// serve files from `dir` on `ip:port`, with live reload over SSE.
+/// configuration for the dev server
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// directory to serve and watch
+    pub dir: PathBuf,
+    /// ip address to bind to
+    pub ip: IpAddr,
+    /// port to listen on
+    pub port: u16,
+    /// additional HTTP headers, as `Name: value` strings
+    pub headers: Vec<String>,
+    /// open the page in the browser on start
+    pub open: bool,
+}
+
+/// serve files from `config.dir` on `config.ip:config.port`,
+/// with live reload over SSE.
+/// Returns the bound address (useful when `config.port` is 0).
 pub async fn serve(
     tx: Sender<(String, Vec<PathBuf>)>,
-    dir: impl AsRef<Path>,
-    ip: IpAddr,
-    port: u16,
-    headers: &[String],
-    browser_open: bool,
-) {
-    let headers = match headers_parse(headers) {
-        Ok(headers) => headers,
-        Err(err) => {
-            eprintln!("Invalid --header: {err}");
-            std::process::exit(1);
-        }
-    };
+    config: Config,
+) -> Result<SocketAddr, String> {
+    let headers =
+        headers_parse(&config.headers).map_err(|err| format!("Invalid --header: {err}"))?;
 
-    let listener = TcpListener::bind((ip, port))
+    let listener = TcpListener::bind((config.ip, config.port))
         .await
-        .expect("Failed to bind address");
-    let port = listener
+        .map_err(|err| format!("Failed to bind address: {err}"))?;
+    let addr = listener
         .local_addr()
-        .expect("Failed to get bound address")
-        .port();
+        .map_err(|err| format!("Failed to get bound address: {err}"))?;
 
-    let url = if ip.is_unspecified() {
-        format!("http://127.0.0.1:{port}")
+    let url = if config.ip.is_unspecified() {
+        format!("http://127.0.0.1:{}", addr.port())
     } else {
-        format!("http://{ip}:{port}")
+        format!("http://{}:{}", config.ip, addr.port())
     };
 
     println!("Starting development server at {url}");
 
-    if browser_open && let Err(err) = that(&url) {
+    if config.open
+        && let Err(err) = that(&url)
+    {
         eprintln!("Failed to open browser: {err}");
     }
 
     let app = app_build(AppState {
-        dir: dir.as_ref().to_path_buf(),
+        dir: config.dir,
         tx,
         headers,
     });
-    axum::serve(listener, app).await.expect("Server error");
+    axum::serve(listener, app)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    Ok(addr)
 }
 
 fn app_build(state: AppState) -> Router {

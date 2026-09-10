@@ -28,7 +28,8 @@
     <nav>
       <ul>
         <li><a href="#features">Features</a></li>
-        <li><a href="#usage">Usage</a></li>
+        <li><a href="#cli">CLI</a></li>
+        <li><a href="#library">Library</a></li>
         <li><a href="#local-installation">Local installation</a></li>
         <li><a href="#similar-tools">Similar tools</a></li>
       </ul>
@@ -46,7 +47,7 @@
       <li>Custom IP/port support</li>
     </ul>
 
-    <h2 id="usage">Usage</h2>
+    <h2 id="cli">CLI</h2>
 
     <h3 id="install-and-run">Install and run</h3>
     <pre><code>cargo install webadev
@@ -86,7 +87,37 @@ webadev</code></pre>
 
 # visit: http://&lt;your-local-ip&gt;:9000</code></pre>
 
-    <h3 id="local-installation">Local installation</h2>
+    <h2 id="library">Library</h2>
+    <pre><code>use std::net::IpAddr;
+use std::path::PathBuf;
+use tokio::sync::broadcast;
+
+use webadev::{Config, serve, watch};
+
+#[tokio::main]
+async fn main() {
+    let (tx, _rx) = broadcast::channel(100);
+    if let Err(err) = watch(tx.clone(), ".".into()) {
+        panic!("Failed to watch: {err}");
+    }
+
+    let config = Config {
+        dir: PathBuf::from("."),
+        ip: IpAddr::from([127, 0, 0, 1]),
+        port: 8080,
+        headers: vec![],
+        open: false,
+    };
+
+    serve(tx, config).await.expect("server error");
+}</code></pre>
+    <p>
+      The <code>broadcast</code> channel notifies subscribers of reload events:
+      <code>(String, Vec&lt;PathBuf&gt;)</code> with <code>"css"</code> (CSS-only)
+      or <code>"page"</code> (full reload) plus the changed paths.
+    </p>
+
+    <h2 id="local-installation">Local installation</h2>
 
       <pre><code># Clone the repo
 git clone https://github.com/francoisromain/webadev.git
