@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use tokio::sync::broadcast;
 
-use webadev::{Config, serve, watch};
+use webadev::{Config, ReloadType, serve, watch};
 
 #[derive(Parser)]
 #[command(about = "A tiny static file server with live reload", version)]
@@ -42,8 +42,8 @@ async fn main() {
     }
 
     tokio::spawn(async move {
-        while let Ok((name, paths)) = rx.recv().await {
-            file_paths_print(&paths, &name);
+        while let Ok((reload_type, paths)) = rx.recv().await {
+            file_paths_print(&paths, reload_type);
         }
     });
 
@@ -61,9 +61,9 @@ async fn main() {
     }
 }
 
-fn file_paths_print(paths: &[PathBuf], reload_type: &str) {
+fn file_paths_print(paths: &[PathBuf], reload_type: ReloadType) {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let message = format!("reloading {reload_type}");
+    let message = format!("reloading {}", reload_type.as_str());
     for path in paths {
         let rel = path.strip_prefix(&cwd).unwrap_or(path);
         println!("Change detected: {} — {message}", rel.display());

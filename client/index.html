@@ -112,14 +112,17 @@ async fn main() {
     serve(tx, config).await.expect("server error");
 }</code></pre>
     <p>
-      The <code>broadcast</code> channel notifies subscribers of reload events:
-      <code>(String, Vec&lt;PathBuf&gt;)</code> with <code>"css"</code> (CSS-only)
-      or <code>"page"</code> (full reload) plus the changed paths.
+      The <code>broadcast</code> channel notifies subscribers of reload events
+      <code>(ReloadType, Vec&lt;PathBuf&gt;)</code> with:
+    <ul>
+      <li><code>ReloadType::Css</code> (CSS-only) or <code>ReloadType::Page</code>,</li>
+      <li>(full reload) plus the changed paths.</li>
+    </ul>
     </p>
 
     <h2 id="local-installation">Local installation</h2>
 
-      <pre><code># Clone the repo
+    <pre><code># Clone the repo
 git clone https://github.com/francoisromain/webadev.git
 cd webadev
 
@@ -141,12 +144,12 @@ webadev
 # Update later after source changes
 cargo install --path . --locked --force</code></pre>
 
-      <h2 id="similar-tools">Similar tools</h2>
-      <ul>
-        <li><a href="https://crates.io/crates/devserver">devserver</a></li>
-        <li><a href="https://crates.io/crates/live-server">live-server</a></li>
-        <li><a href="https://crates.io/crates/servio">servio</a></li>
-      </ul>
+    <h2 id="similar-tools">Similar tools</h2>
+    <ul>
+      <li><a href="https://crates.io/crates/devserver">devserver</a></li>
+      <li><a href="https://crates.io/crates/live-server">live-server</a></li>
+      <li><a href="https://crates.io/crates/servio">servio</a></li>
+    </ul>
   </main>
 
   <h2 id="version-history">Version history</h2>

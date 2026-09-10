@@ -9,33 +9,19 @@ use std::{
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
+use crate::ReloadType;
+
 // stay quiet this long after a change, so a burst of rapid changes collapses into one reload
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 // when idling, sleep at most an hour as a periodic wake-up
 // events wake it instantly
 const IDLE_TIME: Duration = Duration::from_secs(3600);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ReloadType {
-    Css,
-    Page,
-}
-
-impl ReloadType {
-    /// name used both as the SSE event name/`data:` payload and in the terminal log
-    pub fn name_get(self) -> &'static str {
-        match self {
-            Self::Css => "css",
-            Self::Page => "page",
-        }
-    }
-}
-
 /// run a background thread
 /// and watch a directory. When files change:
-/// - broadcast the reload name and the changed paths on `app_event_tx`
+/// - broadcast the reload type and the changed paths on `app_event_tx`
 pub fn watch(
-    app_event_tx: broadcast::Sender<(String, Vec<PathBuf>)>,
+    app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
 ) -> Result<(), notify::Error> {
     let dir = dir.as_ref().to_path_buf();
@@ -111,16 +97,16 @@ fn file_extension_check(path: &Path) -> bool {
 
 // when watcher_event changes:
 // - drain `watcher_event`
-// - broadcast the reload name and the changed paths on `app_event_tx`
+// - broadcast the reload type and the changed paths on `app_event_tx`
 fn event_on_change_emit(
     watcher_event_rx: Receiver<Result<Event, notify::Error>>,
-    app_event_tx: broadcast::Sender<(String, Vec<PathBuf>)>,
+    app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
 ) {
     let mut changes = Changes::default();
 
     while let Some(paths) = changes_wait(&watcher_event_rx, &mut changes) {
         let reload_type = reload_type_find(&paths);
-        let _ = app_event_tx.send((reload_type.name_get().to_string(), paths));
+        let _ = app_event_tx.send((reload_type, paths));
     }
 }
 

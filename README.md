@@ -80,8 +80,9 @@ async fn main() {
 }
 ```
 
-The `broadcast` channel notifies subscribers of reload events:
-`(String, Vec<PathBuf>)` with `"css"` (CSS-only) or `"page"` (full reload) plus the changed paths.
+The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<PathBuf>)`: 
+- `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload), 
+- the changed paths.
 
 ## Local installation
 

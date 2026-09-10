@@ -26,9 +26,11 @@ use tokio::{
     sync::broadcast::{Sender, error::RecvError},
 };
 
+use crate::ReloadType;
+
 struct AppState {
     dir: PathBuf,
-    tx: Sender<(String, Vec<PathBuf>)>,
+    tx: Sender<(ReloadType, Vec<PathBuf>)>,
     headers: Vec<(HeaderName, HeaderValue)>,
 }
 
@@ -51,7 +53,7 @@ pub struct Config {
 /// with live reload over SSE.
 /// Returns the bound address (useful when `config.port` is 0).
 pub async fn serve(
-    tx: Sender<(String, Vec<PathBuf>)>,
+    tx: Sender<(ReloadType, Vec<PathBuf>)>,
     config: Config,
 ) -> Result<SocketAddr, String> {
     let headers =
@@ -141,15 +143,16 @@ async fn livereload(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.tx.subscribe();
     Sse::new(unfold(rx, |mut rx| async move {
-        let message = match rx.recv().await {
-            Ok((name, _)) => name,
-            Err(RecvError::Lagged(_)) => "page".to_string(),
+        let reload_type = match rx.recv().await {
+            Ok((reload_type, _)) => reload_type,
+            Err(RecvError::Lagged(_)) => ReloadType::Page,
             Err(RecvError::Closed) => return None,
         };
+        let message = reload_type.as_str();
         // a `data:` line is required:
         // - SSE specs (WHATWG HTML §9.2.6): events whith no `data:` line are dropped; the line's value could be empty
         // - axum's `Event::data` silently skips empty input, so the field is never emitted
-        Some((Ok(Event::default().event(&message).data(&message)), rx))
+        Some((Ok(Event::default().event(message).data(message)), rx))
     }))
     .keep_alive(
         KeepAlive::new()
