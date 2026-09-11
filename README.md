@@ -18,6 +18,7 @@
 - Smart script injection (no manual setup needed)
 - Auto-reconnect (reloads the page when the server restarts)
 - Custom IP/port support
+- Add headers
 
 ## CLI
 
@@ -59,7 +60,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use tokio::sync::broadcast;
 
-use webadev::{Config, serve, watch};
+use webadev::{Config, bind, serve, watch};
 
 #[tokio::main]
 async fn main() {
@@ -73,10 +74,11 @@ async fn main() {
         ip: IpAddr::from([127, 0, 0, 1]),
         port: 8080,
         headers: vec![],
-        open: false,
     };
 
-    serve(tx, config).await.expect("server error");
+    let (url, listener, router) = bind(tx, config).await.expect("bind error");
+    println!("Starting development server at {url}");
+    serve(listener, router).await.expect("server error");
 }
 ```
 
@@ -87,26 +89,26 @@ The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<
 ## Local installation
 
 ```bash
-# Clone the repo
+# clone the repo
 git clone https://github.com/francoisromain/webadev.git
 cd webadev
 
-# Build the project
+# build the project
 cargo build --release
 
-#Run the server
+# run the server
 ./target/release/webadev --dir ./client --header "Access-Control-Allow-Origin: *"
 
-# Install globally from the local package
-# Compiles and copies the binary to `~/.cargo/bin/webadev`
+# install globally from the local package
+# compiles and copies the binary to `~/.cargo/bin/webadev`
 cargo install --path . --locked
 
-# Use from anywhere.
+# use from anywhere.
 # serves the current directory on 127.0.0.1:8080
 cd ~/some/project
 webadev           
 
-# Update later after source changes
+# update later after source changes
 cargo install --path . --locked --force
 ```
 

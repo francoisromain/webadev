@@ -2,9 +2,10 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::Parser;
+use open::that;
 use tokio::sync::broadcast;
 
-use webadev::{Config, ReloadType, serve, watch};
+use webadev::{Config, ReloadType, bind, serve, watch};
 
 #[derive(Parser)]
 #[command(about = "A tiny static file server with live reload", version)]
@@ -52,10 +53,25 @@ async fn main() {
         ip: args.ip,
         port: args.port,
         headers: args.header,
-        open: args.open,
     };
 
-    if let Err(err) = serve(tx, config).await {
+    let (url, listener, router) = match bind(tx, config).await {
+        Ok(bound) => bound,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("Starting development server at {url}");
+
+    if args.open
+        && let Err(err) = that(&url)
+    {
+        eprintln!("Failed to open browser: {err}");
+    }
+
+    if let Err(err) = serve(listener, router).await {
         eprintln!("{err}");
         std::process::exit(1);
     }

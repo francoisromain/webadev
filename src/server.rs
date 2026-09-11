@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -20,7 +20,6 @@ use axum::{
     routing::get,
 };
 use futures_util::stream::{Stream, unfold};
-use open::that;
 use tokio::{
     net::TcpListener,
     sync::broadcast::{Sender, error::RecvError},
@@ -45,17 +44,15 @@ pub struct Config {
     pub port: u16,
     /// additional HTTP headers, as `Name: value` strings
     pub headers: Vec<String>,
-    /// open the page in the browser on start
-    pub open: bool,
 }
 
-/// serve files from `config.dir` on `config.ip:config.port`,
-/// with live reload over SSE.
-/// Returns the bound address (useful when `config.port` is 0).
-pub async fn serve(
+/// bind to `config.ip:config.port` and build the router.
+/// returns the url, the bound listener and the router.
+/// use `0` as `config.port` to let the OS pick a free port (the real one is in the url).
+pub async fn bind(
     tx: Sender<(ReloadType, Vec<PathBuf>)>,
     config: Config,
-) -> Result<SocketAddr, String> {
+) -> Result<(String, TcpListener, Router), String> {
     let headers =
         headers_parse(&config.headers).map_err(|err| format!("Invalid --header: {err}"))?;
 
@@ -72,24 +69,23 @@ pub async fn serve(
         format!("http://{}:{}", config.ip, addr.port())
     };
 
-    println!("Starting development server at {url}");
-
-    if config.open
-        && let Err(err) = that(&url)
-    {
-        eprintln!("Failed to open browser: {err}");
-    }
-
     let app = app_build(AppState {
         dir: config.dir,
         tx,
         headers,
     });
-    axum::serve(listener, app)
-        .await
-        .map_err(|err| err.to_string())?;
 
-    Ok(addr)
+    Ok((url, listener, app))
+}
+
+/// serve files from the already-bound `listener` with the given `router`,
+/// with live-reload over SSE.
+pub async fn serve(listener: TcpListener, router: Router) -> Result<(), String> {
+    axum::serve(listener, router)
+        .await
+        .map_err(|err| format!("{err}"))?;
+
+    Ok(())
 }
 
 fn app_build(state: AppState) -> Router {

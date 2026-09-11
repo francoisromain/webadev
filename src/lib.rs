@@ -1,6 +1,6 @@
-//! A tiny web dev server with live reload, usable as a library.
+//! a tiny web dev server with live reload, usable as a library.
 //!
-//! The `broadcast` channel payload is `(ReloadType, Vec<PathBuf>)`:
+//! the `broadcast` channel payload is `(ReloadType, Vec<PathBuf>)`:
 //! the reload kind (`Css` for css-only, `Page` for full reloads)
 //! plus the changed paths.
 
@@ -17,7 +17,7 @@ pub enum ReloadType {
 }
 
 impl ReloadType {
-    /// name used as the SSE event name/`data:` payload and in the terminal log
+    /// name used as the SSE event name and `data:` payload
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Css => "css",
@@ -26,5 +26,5 @@ impl ReloadType {
     }
 }
 
-pub use server::{Config, serve};
+pub use server::{Config, bind, serve};
 pub use watcher::watch;
