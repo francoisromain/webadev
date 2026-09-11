@@ -88,30 +88,48 @@ webadev</code></pre>
 # visit: http://&lt;your-local-ip&gt;:9000</code></pre>
 
     <h2 id="library">Library</h2>
+    <p>Three tiers, from simplest to most control.</p>
+
+    <h3 id="static-serving">1. Static serving</h3>
+    <pre><code>use std::net::IpAddr;
+use std::path::PathBuf;
+use webadev::{Config, Server};
+
+let dir: PathBuf = "public".into();    // directory to serve
+let config = Config {
+    dir,
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
+
+let server = Server::new(config).await?;   // binds; url known, not serving yet
+println!("Starting development server at {}", server.url);
+server.run().await?;                        // blocks until shutdown</code></pre>
+    <p>
+      Use <code>0</code> as <code>config.port</code> to let the OS pick a free
+      port (the real one is in <code>server.url</code>).
+    </p>
+
+    <h3 id="with-live-reload">2. With live reload</h3>
     <pre><code>use std::net::IpAddr;
 use std::path::PathBuf;
 use tokio::sync::broadcast;
+use webadev::{Config, Server, watch};
 
-use webadev::{Config, bind, serve, watch};
+let dir: PathBuf = ".".into();           // watch the current directory
+let (tx, _rx) = broadcast::channel(100); // keep a receiver alive so watch() can send
+watch(tx.clone(), &dir)?;
 
-#[tokio::main]
-async fn main() {
-    let (tx, _rx) = broadcast::channel(100);
-    if let Err(err) = watch(tx.clone(), ".".into()) {
-        panic!("Failed to watch: {err}");
-    }
+let config = Config {
+    dir,                                  // same directory (moved in)
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
 
-    let config = Config {
-        dir: PathBuf::from("."),
-        ip: IpAddr::from([127, 0, 0, 1]),
-        port: 8080,
-        headers: vec![],
-    };
-
-    let (url, listener, router) = bind(tx, config).await.expect("bind error");
-    println!("Starting development server at {url}");
-    serve(listener, router).await.expect("server error");
-}</code></pre>
+let server = Server::bind(tx, config).await?;  // watches upstream, drives reloads
+server.run().await?;</code></pre>
     <p>
       The <code>broadcast</code> channel notifies subscribers of reload events
       <code>(ReloadType, Vec&lt;PathBuf&gt;)</code> with:
@@ -120,6 +138,23 @@ async fn main() {
       <li>(full reload) plus the changed paths.</li>
     </ul>
     </p>
+
+    <h3 id="advanced">3. Advanced: merge routes, TLS, graceful shutdown</h3>
+    <pre><code>use std::path::PathBuf;
+use tokio::sync::broadcast;
+use webadev::{Config, bind, serve};
+
+let (tx, _rx) = broadcast::channel(100);
+let dir: PathBuf = ".".into();
+let config = Config {
+    dir,
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
+let (url, listener, router) = bind(tx, config).await?;
+let app = router.merge(my_api_router());  // merge your own routes
+serve(listener, app).await?;</code></pre>
 
     <h2 id="local-installation">Local installation</h2>
 

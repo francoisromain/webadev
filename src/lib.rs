@@ -1,5 +1,10 @@
 //! a tiny web dev server with live reload, usable as a library.
 //!
+//! the simplest entry point is [`Server::new`] which binds, prints the url,
+//! and runs. for live-reload, use [`Server::bind`] with a `broadcast` channel.
+//! for full control (route merging, TLS, graceful shutdown) use the free
+//! functions [`bind`] and [`serve`].
+//!
 //! the `broadcast` channel payload is `(ReloadType, Vec<PathBuf>)`:
 //! the reload kind (`Css` for css-only, `Page` for full reloads)
 //! plus the changed paths.
@@ -26,5 +31,5 @@ impl ReloadType {
     }
 }
 
-pub use server::{Config, bind, serve};
+pub use server::{Config, Server, bind, serve};
 pub use watcher::watch;

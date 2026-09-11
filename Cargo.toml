@@ -1,6 +1,6 @@
 [package]
 name = "webadev"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "A tiny web dev server with live reload"
 license = "MIT"
@@ -25,5 +25,6 @@ tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 http-body-util = "0"
+reqwest = "0.12"
 tempfile = "3"
 tower = { version = "0", features = ["util"] }

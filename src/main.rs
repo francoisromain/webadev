@@ -5,7 +5,7 @@ use clap::Parser;
 use open::that;
 use tokio::sync::broadcast;
 
-use webadev::{Config, ReloadType, bind, serve, watch};
+use webadev::{Config, ReloadType, Server, watch};
 
 #[derive(Parser)]
 #[command(about = "A tiny static file server with live reload", version)]
@@ -55,23 +55,23 @@ async fn main() {
         headers: args.header,
     };
 
-    let (url, listener, router) = match bind(tx, config).await {
-        Ok(bound) => bound,
+    let server = match Server::bind(tx, config).await {
+        Ok(server) => server,
         Err(err) => {
             eprintln!("{err}");
             std::process::exit(1);
         }
     };
 
-    println!("Starting development server at {url}");
+    println!("Starting development server at {}", server.url);
 
     if args.open
-        && let Err(err) = that(&url)
+        && let Err(err) = that(&server.url)
     {
         eprintln!("Failed to open browser: {err}");
     }
 
-    if let Err(err) = serve(listener, router).await {
+    if let Err(err) = server.run().await {
         eprintln!("{err}");
         std::process::exit(1);
     }

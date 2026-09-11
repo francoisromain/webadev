@@ -22,7 +22,7 @@ use axum::{
 use futures_util::stream::{Stream, unfold};
 use tokio::{
     net::TcpListener,
-    sync::broadcast::{Sender, error::RecvError},
+    sync::broadcast::{self, Sender, error::RecvError},
 };
 
 use crate::ReloadType;
@@ -44,6 +44,45 @@ pub struct Config {
     pub port: u16,
     /// additional HTTP headers, as `Name: value` strings
     pub headers: Vec<String>,
+}
+
+/// a bound dev server, ready to run.
+/// `run` starts serving only when awaited, so the `url` can be shown first.
+#[derive(Debug)]
+pub struct Server {
+    /// url to open in the browser
+    pub url: String,
+    listener: TcpListener,
+    router: Router,
+}
+
+impl Server {
+    /// bind `config` with a custom reload channel.
+    pub async fn bind(
+        tx: Sender<(ReloadType, Vec<PathBuf>)>,
+        config: Config,
+    ) -> Result<Self, String> {
+        let (url, listener, router) = bind(tx, config).await?;
+
+        Ok(Self {
+            url,
+            listener,
+            router,
+        })
+    }
+
+    /// bind `config` without sending reload events (static serving).
+    pub async fn new(config: Config) -> Result<Self, String> {
+        let (tx, _rx) = broadcast::channel(100);
+
+        Self::bind(tx, config).await
+    }
+
+    /// serve until the server stops. lazy: starts only when awaited.
+    /// the `url` is consumed along with `self`, so read it before calling.
+    pub async fn run(self) -> Result<(), String> {
+        serve(self.listener, self.router).await
+    }
 }
 
 /// bind to `config.ip:config.port` and build the router.
@@ -257,6 +296,7 @@ fn js_script_inject(html: &str) -> String {
 mod tests {
     use super::*;
     use std::fs::{create_dir_all, write};
+    use std::net::IpAddr;
 
     use axum::{
         body::Body,
@@ -412,5 +452,48 @@ mod tests {
         assert!(headers_parse(&["NoSeparator".to_string()]).is_err());
         assert!(headers_parse(&[": novalue".to_string()]).is_err());
         assert!(headers_parse(&["X-Foo:".to_string()]).is_ok());
+    }
+
+    fn test_config(dir: &Path) -> Config {
+        Config {
+            dir: dir.to_path_buf(),
+            ip: IpAddr::from([127, 0, 0, 1]),
+            port: 0,
+            headers: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn server_new_reports_real_port() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let server = Server::new(test_config(dir.path())).await.unwrap();
+        assert!(server.url.starts_with("http://127.0.0.1:"));
+        assert!(!server.url.ends_with(":0"));
+    }
+
+    #[tokio::test]
+    async fn server_bind_reports_real_port() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let (tx, _rx) = broadcast::channel(8);
+        let server = Server::bind(tx, test_config(dir.path())).await.unwrap();
+        assert!(server.url.starts_with("http://127.0.0.1:"));
+        assert!(!server.url.ends_with(":0"));
+    }
+
+    #[tokio::test]
+    async fn server_run_serves_requests() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let server = Server::new(test_config(dir.path())).await.unwrap();
+        let url = server.url.clone();
+        let handle = tokio::spawn(async move { server.run().await });
+
+        let resp = reqwest::get(&url).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        assert!(resp.text().await.unwrap().contains("hi"));
+
+        handle.abort();
     }
 }

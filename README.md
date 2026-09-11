@@ -55,36 +55,78 @@ Accessing from another device (LAN) (on mobile/tablets over same WiFi).
 
 ## Library
 
+Three tiers, from simplest to most control.
+
+### 1. Static serving
+
+```rust
+use std::net::IpAddr;
+use std::path::PathBuf;
+use webadev::{Config, Server};
+
+let dir: PathBuf = "public".into();    // directory to serve
+let config = Config {
+    dir,
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
+
+let server = Server::new(config).await?;   // binds; url known, not serving yet
+println!("Starting development server at {}", server.url);
+server.run().await?;                        // blocks until shutdown
+```
+
+Use `0` as `config.port` to let the OS pick a free port (the real one is in `server.url`).
+
+### 2. With live reload
+
 ```rust
 use std::net::IpAddr;
 use std::path::PathBuf;
 use tokio::sync::broadcast;
+use webadev::{Config, Server, watch};
 
-use webadev::{Config, bind, serve, watch};
+let dir: PathBuf = ".".into();           // watch the current directory
+let (tx, _rx) = broadcast::channel(100); // keep a receiver alive so watch() can send
+watch(tx.clone(), &dir)?;
 
-#[tokio::main]
-async fn main() {
-    let (tx, _rx) = broadcast::channel(100);
-    if let Err(err) = watch(tx.clone(), ".".into()) {
-        panic!("Failed to watch: {err}");
-    }
+let config = Config {
+    dir,                                  // same directory (moved in)
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
 
-    let config = Config {
-        dir: PathBuf::from("."),
-        ip: IpAddr::from([127, 0, 0, 1]),
-        port: 8080,
-        headers: vec![],
-    };
-
-    let (url, listener, router) = bind(tx, config).await.expect("bind error");
-    println!("Starting development server at {url}");
-    serve(listener, router).await.expect("server error");
-}
+let server = Server::bind(tx, config).await?;  // watches upstream, drives reloads
+server.run().await?;
 ```
 
-The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<PathBuf>)`: 
-- `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload), 
+The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<PathBuf>)`:
+- `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload),
 - the changed paths.
+
+### 3. Advanced: merge routes, TLS, graceful shutdown
+
+Use the low-level `bind` and `serve` to compose with your own axum router:
+
+```rust
+use std::path::PathBuf;
+use tokio::sync::broadcast;
+use webadev::{Config, bind, serve};
+
+let (tx, _rx) = broadcast::channel(100);
+let dir: PathBuf = ".".into();
+let config = Config {
+    dir,
+    ip: IpAddr::from([127, 0, 0, 1]),
+    port: 8080,
+    headers: vec![],
+};
+let (url, listener, router) = bind(tx, config).await?;
+let app = router.merge(my_api_router());  // merge your own routes
+serve(listener, app).await?;
+```
 
 ## Local installation
 
