@@ -1,69 +1,63 @@
-(function () {
-  var button = document.getElementById("load-commits");
-  var list = document.getElementById("commit-list");
+const button = document.getElementById("load-commits");
+const list = document.getElementById("commit-list");
 
-  if (!button || !list) {
-    return;
+if (!button || !list) {
+  throw new Error("Missing #load-commits or #commit-list element");
+}
+
+function formatDate(iso) {
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) {
+    return iso;
   }
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
-  function formatDate(iso) {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) {
-      return iso;
-    }
-    return d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  }
+function render(commits) {
+  list.textContent = "";
+  for (const commit of commits) {
+    const li = document.createElement("li");
 
-  function render(commits) {
-    list.textContent = "";
-    commits.forEach(function (commit) {
-      var li = document.createElement("li");
+    const hash = document.createElement("code");
+    hash.className = "commit-hash";
+    hash.textContent = commit.sha.slice(0, 7);
 
-      var hash = document.createElement("code");
-      hash.className = "commit-hash";
-      hash.textContent = commit.sha.slice(0, 7);
+    const date = document.createElement("span");
+    date.className = "commit-date";
+    date.textContent = formatDate(commit.commit.author.date);
 
-      var date = document.createElement("span");
-      date.className = "commit-date";
-      date.textContent = formatDate(commit.commit.author.date);
+    const message = document.createElement("span");
+    message.className = "commit-message";
+    message.textContent = commit.commit.message.split("\n")[0];
 
-      var msg = document.createElement("span");
-      msg.className = "commit-message";
-      msg.textContent = commit.commit.message.split("\n")[0];
-
-      li.appendChild(hash);
-      li.appendChild(document.createTextNode(" "));
-      li.appendChild(date);
-      li.appendChild(document.createTextNode(" "));
-      li.appendChild(msg);
-      list.appendChild(li);
-    });
-  }
-
-  function fail(msg) {
-    list.textContent = "";
-    var li = document.createElement("li");
-    li.className = "commit-error";
-    li.textContent = msg;
+    li.append(hash, " ", date, " ", message);
     list.appendChild(li);
   }
+}
 
-  button.addEventListener("click", function () {
-    fetch("https://api.github.com/repos/francoisromain/webadev/commits?per_page=10")
-      .then(function (res) {
-        if (!res.ok) {
-          throw new Error("HTTP " + res.status);
-        }
-        return res.json();
-      })
-      .then(render)
-      .catch(function (err) {
-        console.error("Failed to load commits:", err);
-        fail("Could not load commits. Is the server reachable and CORS allowed?");
-      });
-  });
-})();
+function fail(message) {
+  list.textContent = "";
+  const li = document.createElement("li");
+  li.className = "commit-error";
+  li.textContent = message;
+  list.appendChild(li);
+}
+
+button.addEventListener("click", async () => {
+  try {
+    const res = await fetch(
+      "https://api.github.com/repos/francoisromain/webadev/commits?per_page=10",
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    render(await res.json());
+  } catch (error) {
+    console.error("Failed to load commits:", error);
+    fail("Could not load commits. Is the server reachable and CORS allowed?");
+  }
+});

@@ -55,7 +55,7 @@ Accessing from another device (LAN) (on mobile/tablets over same WiFi).
 
 ## Library
 
-Three tiers, from simplest to most control.
+From simplest to most control.
 
 ### 1. Static serving
 
@@ -77,7 +77,7 @@ println!("Starting development server at {}", server.url);
 server.run().await?;                        // blocks until shutdown
 ```
 
-Use `0` as `config.port` to let the OS pick a free port (the real one is in `server.url`).
+Use `0` as `config.port` to let the OS pick a free port (the chosen port is visible in `server.url`).
 
 ### 2. With live reload
 
@@ -87,7 +87,7 @@ use std::path::PathBuf;
 use tokio::sync::broadcast;
 use webadev::{Config, Server, watch};
 
-let dir: PathBuf = ".".into();           // watch the current directory
+let dir: PathBuf = ".".into();           // directory to watch and serve
 let (tx, _rx) = broadcast::channel(100); // keep a receiver alive so watch() can send
 watch(tx.clone(), &dir)?;
 
@@ -124,8 +124,8 @@ let config = Config {
     headers: vec![],
 };
 let (url, listener, router) = bind(tx, config).await?;
-let app = router.merge(my_api_router());  // merge your own routes
-serve(listener, app).await?;
+// here you can tweak the axum router
+serve(listener, router).await?;
 ```
 
 ## Local installation

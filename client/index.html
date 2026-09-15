@@ -88,7 +88,7 @@ webadev</code></pre>
 # visit: http://&lt;your-local-ip&gt;:9000</code></pre>
 
     <h2 id="library">Library</h2>
-    <p>Three tiers, from simplest to most control.</p>
+    <p>From simplest to most control.</p>
 
     <h3 id="static-serving">1. Static serving</h3>
     <pre><code>use std::net::IpAddr;
@@ -108,7 +108,7 @@ println!("Starting development server at {}", server.url);
 server.run().await?;                        // blocks until shutdown</code></pre>
     <p>
       Use <code>0</code> as <code>config.port</code> to let the OS pick a free
-      port (the real one is in <code>server.url</code>).
+      port (the chosen port is visible in <code>server.url</code>).
     </p>
 
     <h3 id="with-live-reload">2. With live reload</h3>
@@ -153,8 +153,8 @@ let config = Config {
     headers: vec![],
 };
 let (url, listener, router) = bind(tx, config).await?;
-let app = router.merge(my_api_router());  // merge your own routes
-serve(listener, app).await?;</code></pre>
+// here you can tweak the axum router
+serve(listener, router).await?;</code></pre>
 
     <h2 id="local-installation">Local installation</h2>
 
@@ -196,7 +196,7 @@ cargo install --path . --locked --force</code></pre>
     <p>&copy; 2026 François Romain</p>
   </footer>
 
-  <script type="text/javascript" src="./index.js"></script>
+  <script type="module" src="./index.js"></script>
 </body>
 
 </html>
