@@ -36,6 +36,7 @@ webadev
 - `--ip` / `-i`: IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--open` / `-o`: open the page in the browser on start (false by default; live reload keeps an already-open tab in sync across restarts)
 - `--header`: additional HTTP header on every response (repeatable), e.g. `--header "Access-Control-Allow-Origin: *"`
+- `--index`: default file for directory requests (default: `index.html`)
 
 ### Examples
 
@@ -70,6 +71,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 
 let server = Server::new(config).await?;   // binds; url known, not serving yet
@@ -96,6 +98,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 
 let server = Server::bind(tx, config).await?;  // watches upstream, drives reloads
@@ -122,6 +125,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 let (url, listener, router) = bind(tx, config).await?;
 // here you can tweak the axum router

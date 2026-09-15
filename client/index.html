@@ -75,6 +75,10 @@ webadev</code></pre>
         (repeatable), e.g.
         <code>--header "Access-Control-Allow-Origin: *"</code>
       </li>
+      <li>
+        <code>--index</code>: default file for directory requests (default:
+        <code>index.html</code>)
+      </li>
     </ul>
 
     <h3 id="examples">Examples</h3>
@@ -101,6 +105,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 
 let server = Server::new(config).await?;   // binds; url known, not serving yet
@@ -126,6 +131,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 
 let server = Server::bind(tx, config).await?;  // watches upstream, drives reloads
@@ -151,6 +157,7 @@ let config = Config {
     ip: IpAddr::from([127, 0, 0, 1]),
     port: 8080,
     headers: vec![],
+    index: "index.html".into(),
 };
 let (url, listener, router) = bind(tx, config).await?;
 // here you can tweak the axum router

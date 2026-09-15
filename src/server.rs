@@ -31,6 +31,7 @@ struct AppState {
     dir: PathBuf,
     tx: Sender<(ReloadType, Vec<PathBuf>)>,
     headers: Vec<(HeaderName, HeaderValue)>,
+    index: String,
 }
 
 /// configuration for the dev server
@@ -44,6 +45,8 @@ pub struct Config {
     pub port: u16,
     /// additional HTTP headers, as `Name: value` strings
     pub headers: Vec<String>,
+    /// default file served for directory requests
+    pub index: String,
 }
 
 /// a bound dev server, ready to run.
@@ -95,6 +98,8 @@ pub async fn bind(
     let headers =
         headers_parse(&config.headers).map_err(|err| format!("Invalid --header: {err}"))?;
 
+    index_validate(&config.index).map_err(|err| format!("Invalid --index: {err}"))?;
+
     let listener = TcpListener::bind((config.ip, config.port))
         .await
         .map_err(|err| format!("Failed to bind address: {err}"))?;
@@ -112,6 +117,7 @@ pub async fn bind(
         dir: config.dir,
         tx,
         headers,
+        index: config.index,
     });
 
     Ok((url, listener, app))
@@ -160,6 +166,25 @@ fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, Strin
         .collect()
 }
 
+// validate the `--index` value: a bare filename only.
+// rejects empty, `.`/`..`, any `/` or `\` and a leading `.`
+// so that `dir.join(index)` can never escape the docroot.
+fn index_validate(index: &str) -> Result<(), String> {
+    if index.is_empty() {
+        return Err("empty index filename".into());
+    }
+    if index == "." || index == ".." {
+        return Err(format!("invalid index filename `{index}`"));
+    }
+    if index.starts_with('.') {
+        return Err(format!("invalid index filename `{index}`"));
+    }
+    if index.contains('/') || index.contains('\\') {
+        return Err(format!("index must be a bare filename, got `{index}`"));
+    }
+    Ok(())
+}
+
 // attach user-supplied `--header`s to every response
 async fn headers_middleware(
     State(state): State<Arc<AppState>>,
@@ -197,17 +222,17 @@ async fn livereload(
 }
 
 async fn root_serve(State(state): State<Arc<AppState>>) -> Response {
-    file_serve(&state.dir, "").await
+    file_serve(&state.dir, "", &state.index).await
 }
 
 async fn files_serve(
     State(state): State<Arc<AppState>>,
     UrlPath(path): UrlPath<String>,
 ) -> Response {
-    file_serve(&state.dir, &path).await
+    file_serve(&state.dir, &path, &state.index).await
 }
 
-async fn file_serve(dir: &Path, path: &str) -> Response {
+async fn file_serve(dir: &Path, path: &str, index: &str) -> Response {
     if path.split('/').any(|segment| segment == "..") {
         return html_not_found_build();
     }
@@ -217,7 +242,7 @@ async fn file_serve(dir: &Path, path: &str) -> Response {
         .await
         .is_ok_and(|m| m.is_dir());
     if is_dir {
-        file_path = file_path.join("index.html");
+        file_path = file_path.join(index);
     }
 
     let bytes = match tokio::fs::read(&file_path).await {
@@ -308,16 +333,25 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_app(dir: &Path) -> Router {
-        test_app_with_headers(dir, &[])
+        test_app_with_index(dir, "index.html")
+    }
+
+    fn test_app_with_index(dir: &Path, index: &str) -> Router {
+        test_app_with_headers_and_index(dir, &[], index)
     }
 
     fn test_app_with_headers(dir: &Path, headers: &[&str]) -> Router {
+        test_app_with_headers_and_index(dir, headers, "index.html")
+    }
+
+    fn test_app_with_headers_and_index(dir: &Path, headers: &[&str], index: &str) -> Router {
         let (tx, _rx) = broadcast::channel(8);
         let headers = headers.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         app_build(AppState {
             dir: dir.to_path_buf(),
             tx,
             headers: headers_parse(&headers).unwrap(),
+            index: index.to_string(),
         })
     }
 
@@ -460,6 +494,7 @@ mod tests {
             ip: IpAddr::from([127, 0, 0, 1]),
             port: 0,
             headers: vec![],
+            index: "index.html".into(),
         }
     }
 
@@ -495,5 +530,58 @@ mod tests {
         assert!(resp.text().await.unwrap().contains("hi"));
 
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn custom_index_is_served_at_root() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "about.html", "<html>about</html>");
+        let app = test_app_with_index(dir.path(), "about.html");
+        let (status, body) = get(&app, "/").await;
+        assert_eq!(status, 200);
+        assert!(String::from_utf8(body).unwrap().contains("about"));
+    }
+
+    #[tokio::test]
+    async fn custom_index_is_404_when_absent() {
+        let dir = tempdir().unwrap();
+        let app = test_app_with_index(dir.path(), "about.html");
+        let (status, _) = get(&app, "/").await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn custom_index_works_for_subdirectories() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "sub/about.html", "<html>sub about</html>");
+        let app = test_app_with_index(dir.path(), "about.html");
+        let (status, body) = get(&app, "/sub").await;
+        assert_eq!(status, 200);
+        assert!(String::from_utf8(body).unwrap().contains("sub about"));
+    }
+
+    #[tokio::test]
+    async fn non_html_index_is_served_raw() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.md", "# readme");
+        let app = test_app_with_index(dir.path(), "index.md");
+        let (status, body) = get(&app, "/").await;
+        assert_eq!(status, 200);
+        assert_eq!(String::from_utf8(body).unwrap(), "# readme");
+    }
+
+    #[test]
+    fn invalid_index_is_rejected() {
+        assert!(index_validate("").is_err());
+        assert!(index_validate(".").is_err());
+        assert!(index_validate("..").is_err());
+        assert!(index_validate("./x").is_err());
+        assert!(index_validate("../x").is_err());
+        assert!(index_validate("/etc/passwd").is_err());
+        assert!(index_validate("a/b").is_err());
+        assert!(index_validate("a\\b").is_err());
+        assert!(index_validate(".hidden").is_err());
+        assert!(index_validate("index.html").is_ok());
+        assert!(index_validate("about.html").is_ok());
     }
 }

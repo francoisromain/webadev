@@ -29,6 +29,10 @@ struct Args {
     /// additional HTTP header to send with every response, e.g. `--header "Access-Control-Allow-Origin: *"`
     #[arg(long)]
     header: Vec<String>,
+
+    /// default file served for directory requests
+    #[arg(long, default_value = "index.html")]
+    index: String,
 }
 
 #[tokio::main]
@@ -53,6 +57,7 @@ async fn main() {
         ip: args.ip,
         port: args.port,
         headers: args.header,
+        index: args.index,
     };
 
     let server = match Server::bind(tx, config).await {
