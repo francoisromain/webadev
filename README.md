@@ -20,6 +20,8 @@
 - Custom IP/port support
 - Add headers
 
+> If you need to bundle and serve, check [Bundla](https://crates.io/crates/bundla).
+
 ## CLI
 
 ```bash
