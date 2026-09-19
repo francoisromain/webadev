@@ -10,27 +10,27 @@ use webadev::{Config, ReloadType, Server, watch};
 #[derive(Parser)]
 #[command(about = "A tiny static file server with live reload", version)]
 struct Args {
-    /// directory to serve and watch
+    /// Directory to serve and watch
     #[arg(short, long, default_value = ".")]
     dir: PathBuf,
 
-    /// port to listen on
+    /// Port to listen on
     #[arg(short, long, default_value = "8080")]
     port: u16,
 
-    /// ip address to bind to
+    /// IP address to bind to
     #[arg(short, long, default_value = "127.0.0.1")]
     ip: IpAddr,
 
-    /// open the page in the browser on start
+    /// Open the page in the browser on start
     #[arg(short, long)]
     open: bool,
 
-    /// additional HTTP header to send with every response, e.g. `--header "Access-Control-Allow-Origin: *"`
+    /// Additional HTTP header to send with every response, e.g. `--header "Access-Control-Allow-Origin: *"`
     #[arg(long)]
     header: Vec<String>,
 
-    /// default file served for directory requests
+    /// Default file served for directory requests
     #[arg(long, default_value = "index.html")]
     index: String,
 }
@@ -39,7 +39,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    // rx keep a receiver alive so tx.send doesn't error
+    // Rx keep a receiver alive so tx.send doesn't error
     let (tx, mut rx) = broadcast::channel(100);
     if let Err(err) = watch(tx.clone(), &args.dir) {
         eprintln!("Failed to watch {}: {err}", args.dir.display());

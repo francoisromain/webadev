@@ -161,6 +161,7 @@ cargo install --path . --locked --force
 
 ## Similar tools
 
-- [devserver](https://crates.io/crates/devserver)
 - [live-server](https://crates.io/crates/live-server)
 - [servio](https://crates.io/crates/servio)
+
+See [docs/similar-tools.md](docs/similar-tools.md) for a comparison table.

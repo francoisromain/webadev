@@ -1,3 +1,10 @@
+//! HTTP layer: serves the static folder over axum with live reload over SSE.
+//!
+//! - [`Server::new`] serves statically only.
+//! - [`Server::bind`] also drives reloads from a `broadcast` channel.
+//! - [`bind`] + [`serve`] split binding from serving, so you can merge the
+//!   router with your own axum routes, add TLS, or run a graceful shutdown.
+
 use std::{
     convert::Infallible,
     net::IpAddr,
@@ -34,33 +41,71 @@ struct AppState {
     index: String,
 }
 
-/// configuration for the dev server
+/// Configuration for the dev server
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// directory to serve and watch
+    /// Directory to serve and watch
     pub dir: PathBuf,
-    /// ip address to bind to
+    /// IP address to bind to
     pub ip: IpAddr,
-    /// port to listen on
+    /// Port to listen on
     pub port: u16,
-    /// additional HTTP headers, as `Name: value` strings
+    /// Additional HTTP headers, as `Name: value` strings
     pub headers: Vec<String>,
-    /// default file served for directory requests
+    /// Default file served for directory requests
     pub index: String,
 }
 
-/// a bound dev server, ready to run.
+/// A bound dev server, ready to run.
 /// `run` starts serving only when awaited, so the `url` can be shown first.
 #[derive(Debug)]
 pub struct Server {
-    /// url to open in the browser
+    /// URL to open in the browser
     pub url: String,
     listener: TcpListener,
     router: Router,
 }
 
 impl Server {
-    /// bind `config` with a custom reload channel.
+    /// Bind `config` with a custom reload channel.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::IpAddr;
+    /// use tempfile::tempdir;
+    /// use tokio::sync::broadcast;
+    /// use webadev::{Config, Server, watch};
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let dir = tempdir().unwrap();
+    ///     std::fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
+    ///
+    ///     let (tx, _rx) = broadcast::channel(100); // Keep a receiver alive so watch() can send
+    ///     watch(tx.clone(), dir.path()).unwrap();
+    ///
+    ///     let config = Config {
+    ///         dir: dir.path().to_path_buf(),
+    ///         ip: IpAddr::from([127, 0, 0, 1]),
+    ///         port: 0, // Let the OS pick a free port
+    ///         headers: vec![],
+    ///         index: "index.html".into(),
+    ///     };
+    ///
+    ///     let server = Server::bind(tx, config).await.unwrap();
+    ///     let url = server.url.clone();
+    ///     tokio::spawn(async move { let _ = server.run().await; });
+    ///
+    ///     let body = reqwest::get(format!("{url}/"))
+    ///         .await
+    ///         .unwrap()
+    ///         .text()
+    ///         .await
+    ///         .unwrap();
+    ///     assert!(body.contains("hi"));
+    /// }
+    /// ```
     pub async fn bind(
         tx: Sender<(ReloadType, Vec<PathBuf>)>,
         config: Config,
@@ -74,23 +119,97 @@ impl Server {
         })
     }
 
-    /// bind `config` without sending reload events (static serving).
+    /// Bind `config` without sending reload events (static serving).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::IpAddr;
+    /// use tempfile::tempdir;
+    /// use webadev::{Config, Server};
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let dir = tempdir().unwrap();
+    ///     std::fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
+    ///
+    ///     let config = Config {
+    ///         dir: dir.path().to_path_buf(),
+    ///         ip: IpAddr::from([127, 0, 0, 1]),
+    ///         port: 0, // Let the OS pick a free port
+    ///         headers: vec![],
+    ///         index: "index.html".into(),
+    ///     };
+    ///
+    ///     let server = Server::new(config).await.unwrap();
+    ///     let url = server.url.clone();
+    ///     tokio::spawn(async move { let _ = server.run().await; });
+    ///
+    ///     let body = reqwest::get(format!("{url}/"))
+    ///         .await
+    ///         .unwrap()
+    ///         .text()
+    ///         .await
+    ///         .unwrap();
+    ///     assert!(body.contains("hi"));
+    /// }
+    /// ```
     pub async fn new(config: Config) -> Result<Self, String> {
         let (tx, _rx) = broadcast::channel(100);
 
         Self::bind(tx, config).await
     }
 
-    /// serve until the server stops. lazy: starts only when awaited.
+    /// Serve until the server stops. lazy: starts only when awaited.
     /// the `url` is consumed along with `self`, so read it before calling.
     pub async fn run(self) -> Result<(), String> {
         serve(self.listener, self.router).await
     }
 }
 
-/// bind to `config.ip:config.port` and build the router.
-/// returns the url, the bound listener and the router.
-/// use `0` as `config.port` to let the OS pick a free port (the real one is in the url).
+/// Bind to `config.ip:config.port` and build the router.
+/// Returns the url, the bound listener and the router.
+/// Use `0` as `config.port` to let the OS pick a free port (the real one is in the url).
+///
+/// # Examples
+///
+/// ```
+/// use std::net::IpAddr;
+/// use axum::{Router, routing::get};
+/// use tempfile::tempdir;
+/// use tokio::sync::broadcast;
+/// use webadev::{Config, bind, serve};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let dir = tempdir().unwrap();
+///     std::fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
+///
+///     let (tx, _rx) = broadcast::channel(100);
+///     let config = Config {
+///         dir: dir.path().to_path_buf(),
+///         ip: IpAddr::from([127, 0, 0, 1]),
+///         port: 0,
+///         headers: vec![],
+///         index: "index.html".into(),
+///     };
+///
+///     let (url, listener, router) = bind(tx, config).await.unwrap();
+///     // Here you can tweak the axum router
+///     let router = router.route("/health", get(|| async { "ok" }));
+///
+///     let url = url.clone();
+///     tokio::spawn(async move { let _ = serve(listener, router).await; });
+///
+///     let body = reqwest::get(format!("{url}/health"))
+///         .await
+///         .unwrap()
+///         .text()
+///         .await
+///         .unwrap();
+///     assert_eq!(body, "ok");
+/// }
+/// ```
 pub async fn bind(
     tx: Sender<(ReloadType, Vec<PathBuf>)>,
     config: Config,
@@ -123,8 +242,11 @@ pub async fn bind(
     Ok((url, listener, app))
 }
 
-/// serve files from the already-bound `listener` with the given `router`,
+/// Serve files from the already-bound `listener` with the given `router`,
 /// with live-reload over SSE.
+///
+/// Usually paired with [`bind`]: [`bind`] returns the listener and the router,
+/// [`serve`] runs them.
 pub async fn serve(listener: TcpListener, router: Router) -> Result<(), String> {
     axum::serve(listener, router)
         .await
@@ -143,9 +265,9 @@ fn app_build(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state, headers_middleware))
 }
 
-// parse `Name: value` header strings into axum header pairs
+// Parse `Name: value` header strings into axum header pairs
 // - `:` separator
-// - empty names/values and control chars are rejected (header-injection guard)
+// - Empty names/values and control chars are rejected (header-injection guard)
 fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, String> {
     raw.iter()
         .map(|item| {
@@ -166,9 +288,9 @@ fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, Strin
         .collect()
 }
 
-// validate the `--index` value: a bare filename only.
-// rejects empty, `.`/`..`, any `/` or `\` and a leading `.`
-// so that `dir.join(index)` can never escape the docroot.
+// Validate the `--index` value: a bare filename only.
+// Rejects empty, `.`/`..`, any `/` or `\` and a leading `.`
+// So that `dir.join(index)` can never escape the docroot.
 fn index_validate(index: &str) -> Result<(), String> {
     if index.is_empty() {
         return Err("empty index filename".into());
@@ -185,7 +307,7 @@ fn index_validate(index: &str) -> Result<(), String> {
     Ok(())
 }
 
-// attach user-supplied `--header`s to every response
+// Attach user-supplied `--header`s to every response
 async fn headers_middleware(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
@@ -209,9 +331,9 @@ async fn livereload(
             Err(RecvError::Closed) => return None,
         };
         let message = reload_type.as_str();
-        // a `data:` line is required:
+        // A `data:` line is required:
         // - SSE specs (WHATWG HTML §9.2.6): events whith no `data:` line are dropped; the line's value could be empty
-        // - axum's `Event::data` silently skips empty input, so the field is never emitted
+        // - Axum's `Event::data` silently skips empty input, so the field is never emitted
         Some((Ok(Event::default().event(message).data(message)), rx))
     }))
     .keep_alive(
@@ -292,7 +414,7 @@ fn js_script_inject(html: &str) -> String {
                 first = false;
                 console.log('[webadev] live reload connected');
             } else {
-                // server restarted: reload to resync
+                // Server restarted: reload to resync
                 location.reload();
             }
         });
@@ -499,15 +621,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_new_reports_real_port() {
-        let dir = tempdir().unwrap();
-        html_write(dir.path(), "index.html", "<html>hi</html>");
-        let server = Server::new(test_config(dir.path())).await.unwrap();
-        assert!(server.url.starts_with("http://127.0.0.1:"));
-        assert!(!server.url.ends_with(":0"));
-    }
-
-    #[tokio::test]
     async fn server_bind_reports_real_port() {
         let dir = tempdir().unwrap();
         html_write(dir.path(), "index.html", "<html>hi</html>");
@@ -515,21 +628,6 @@ mod tests {
         let server = Server::bind(tx, test_config(dir.path())).await.unwrap();
         assert!(server.url.starts_with("http://127.0.0.1:"));
         assert!(!server.url.ends_with(":0"));
-    }
-
-    #[tokio::test]
-    async fn server_run_serves_requests() {
-        let dir = tempdir().unwrap();
-        html_write(dir.path(), "index.html", "<html>hi</html>");
-        let server = Server::new(test_config(dir.path())).await.unwrap();
-        let url = server.url.clone();
-        let handle = tokio::spawn(async move { server.run().await });
-
-        let resp = reqwest::get(&url).await.unwrap();
-        assert_eq!(resp.status(), 200);
-        assert!(resp.text().await.unwrap().contains("hi"));
-
-        handle.abort();
     }
 
     #[tokio::test]

@@ -1,11 +1,13 @@
 [package]
 name = "webadev"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 description = "A tiny web dev server with live reload"
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/francoisromain/webadev"
 homepage = "https://github.com/francoisromain/webadev"
+documentation = "https://docs.rs/webadev"
 rust-version = "1.88"
 keywords = ["server", "live-reload", "web", "development", "watch"]
 categories = ["development-tools"]
@@ -28,3 +30,7 @@ http-body-util = "0"
 reqwest = "0.13"
 tempfile = "3"
 tower = { version = "0", features = ["util"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["-D", "rustdoc::broken_intra_doc_links"]

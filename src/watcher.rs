@@ -1,3 +1,9 @@
+//! File watching: turns filesystem changes into reload events.
+//!
+//! Watches a directory recursively, keeps only web files
+//! (`html`, `css`, `js`, `jsx`, `ts`, `tsx`) and collapses bursts of changes
+//! Into one event every 200ms, sent on a `broadcast` channel.
+
 use std::{
     mem,
     path::{Path, PathBuf},
@@ -11,15 +17,30 @@ use tokio::sync::broadcast;
 
 use crate::ReloadType;
 
-// stay quiet this long after a change, so a burst of rapid changes collapses into one reload
+// Stay quiet this long after a change, so a burst of rapid changes collapses into one reload
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
-// when idling, sleep at most an hour as a periodic wake-up
-// events wake it instantly
+// When idling, sleep at most an hour as a periodic wake-up
+// Events wake it instantly
 const IDLE_TIME: Duration = Duration::from_secs(3600);
 
-/// run a background thread
-/// and watch a directory. When files change:
-/// - broadcast the reload type and the changed paths on `app_event_tx`
+// File extensions that trigger a reload
+const WEB_EXTENSIONS: &[&str] = &["html", "css", "js", "jsx", "ts", "tsx"];
+
+/// Run a background thread
+/// And watch a directory. When files change:
+/// - Broadcast the reload type and the changed paths on `app_event_tx`
+///
+/// # Examples
+///
+/// ```
+/// use tempfile::tempdir;
+/// use tokio::sync::broadcast;
+/// use webadev::watch;
+///
+/// let dir = tempdir().unwrap();
+/// let (tx, _rx) = broadcast::channel(100); // Keep a receiver alive so watch() can send
+/// watch(tx, dir.path()).unwrap();
+/// ```
 pub fn watch(
     app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
@@ -28,7 +49,7 @@ pub fn watch(
     let (watcher_event_tx, watcher_event_rx) = mpsc::channel::<Result<Event, notify::Error>>();
     let watcher = watcher_build(dir, watcher_event_tx)?;
 
-    // run in the background to avoid blocking the main thread
+    // Run in the background to avoid blocking the main thread
     // `_watcher` keeps the notify thread alive
     thread::spawn(move || {
         let _watcher = watcher;
@@ -38,8 +59,8 @@ pub fn watch(
     Ok(())
 }
 
-// build a notify watcher
-// callback passes filtered events and notify errors to `watcher_event_tx`
+// Build a notify watcher
+// Callback passes filtered events and notify errors to `watcher_event_tx`
 fn watcher_build(
     dir: PathBuf,
     watcher_event_tx: mpsc::Sender<Result<Event, notify::Error>>,
@@ -63,10 +84,10 @@ fn watcher_build(
     Ok(watcher)
 }
 
-// keep the event only with:
-// - the correct event kind
-// - file paths with the correct extension
-// - at least one path
+// Keep the event only with:
+// - The correct event kind
+// - File paths with the correct extension
+// - At least one path
 fn event_filter(mut event: Event) -> Option<Event> {
     if !event_kind_check(&event.kind) {
         return None;
@@ -89,15 +110,14 @@ fn event_kind_check(kind: &EventKind) -> bool {
 }
 
 fn file_extension_check(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => matches!(ext, "html" | "css" | "js" | "jsx" | "ts" | "tsx"),
-        None => false,
-    }
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| WEB_EXTENSIONS.contains(&ext))
 }
 
-// when watcher_event changes:
-// - drain `watcher_event`
-// - broadcast the reload type and the changed paths on `app_event_tx`
+// When watcher_event changes:
+// - Drain `watcher_event`
+// - Broadcast the reload type and the changed paths on `app_event_tx`
 fn event_on_change_emit(
     watcher_event_rx: Receiver<Result<Event, notify::Error>>,
     app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
@@ -123,9 +143,9 @@ fn reload_type_find(paths: &[PathBuf]) -> ReloadType {
     }
 }
 
-// loop over `watcher_event_rx`
-// - while the debounce time is open: enqueue event paths into 'changes'
-// - once the debounce time has elapsed: return the queued paths
+// Loop over `watcher_event_rx`
+// - While the debounce time is open: enqueue event paths into 'changes'
+// - Once the debounce time has elapsed: return the queued paths
 fn changes_wait(
     watcher_event_rx: &Receiver<Result<Event, notify::Error>>,
     changes: &mut Changes,
@@ -136,20 +156,20 @@ fn changes_wait(
         }
 
         match watcher_event_rx.recv_timeout(changes.wait()) {
-            // got a filesystem event
+            // Got a filesystem event
             Ok(Ok(event)) => changes.enqueue(&event.paths),
-            // notify gave an error
+            // Notify gave an error
             Ok(Err(err)) => eprintln!("File watcher error: {err:?}"),
-            // nothing arrived in time
+            // Nothing arrived in time
             Err(RecvTimeoutError::Timeout) => continue,
-            // sender dropped, we're done
+            // Sender dropped, we're done
             Err(RecvTimeoutError::Disconnected) => return None,
         }
     }
 }
 
-// paths being enqueued while the debounce time is open
-// time marks when the last path was enqueued and start the debounce
+// Paths being enqueued while the debounce time is open
+// Time marks when the last path was enqueued and start the debounce
 #[derive(Default)]
 struct Changes {
     paths: Vec<PathBuf>,
@@ -157,8 +177,8 @@ struct Changes {
 }
 
 impl Changes {
-    // add paths to the queue
-    // restart the debounce time when a path is added
+    // Add paths to the queue
+    // Restart the debounce time when a path is added
     fn enqueue(&mut self, paths: &[PathBuf]) {
         let new_paths = paths_filter(&self.paths, paths);
         if !new_paths.is_empty() {
@@ -167,8 +187,8 @@ impl Changes {
         }
     }
 
-    // time to block until the debounce time elapses
-    // or a long idle sleep
+    // Time to block until the debounce time elapses
+    // Or a long idle sleep
     fn wait(&self) -> Duration {
         match self.time {
             Some(time) => DEBOUNCE_TIME.saturating_sub(time.elapsed()),
@@ -176,8 +196,8 @@ impl Changes {
         }
     }
 
-    // when the debounce time has elapsed
-    // return the queued paths
+    // When the debounce time has elapsed
+    // Return the queued paths
     fn emit(&mut self) -> Option<Vec<PathBuf>> {
         let debounce_time_elapsed = self.time.is_some_and(|t| t.elapsed() >= DEBOUNCE_TIME);
         if self.paths.is_empty() || !debounce_time_elapsed {
@@ -189,7 +209,7 @@ impl Changes {
     }
 }
 
-// filter out the paths already in the queue
+// Filter out the paths already in the queue
 fn paths_filter(paths: &[PathBuf], event_paths: &[PathBuf]) -> Vec<PathBuf> {
     event_paths
         .iter()
@@ -226,7 +246,7 @@ mod tests {
 
     #[test]
     fn file_extension_check_only_web_files_are_true() {
-        for ext in ["html", "css", "js", "jsx", "ts", "tsx"] {
+        for ext in WEB_EXTENSIONS {
             assert!(file_extension_check(Path::new(&format!("a.{ext}"))));
         }
         assert!(!file_extension_check(Path::new("a.txt")));
