@@ -3,7 +3,7 @@
 //! - [`Server::new`] serves statically only.
 //! - [`Server::bind`] also drives reloads from a `broadcast` channel.
 //! - [`bind`] + [`serve`] split binding from serving, so you can merge the
-//!   router with your own axum routes, add TLS, or run a graceful shutdown.
+//!   router with your own axum routes.
 
 use std::{
     convert::Infallible,

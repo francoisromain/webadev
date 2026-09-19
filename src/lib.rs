@@ -30,9 +30,9 @@
 //! - [`ReloadType::Css`] (CSS-only) or [`ReloadType::Page`] (full reload),
 //! - The changed paths.
 //!
-//! ### 3. Advanced: merge routes, TLS, graceful shutdown
+//! ### 3. Advanced: compose with your own axum router
 //!
-//! Use the low-level [`bind`] and [`serve`] to compose with your own axum router.
+//! Use the low-level [`bind`] and [`serve`].
 //! See the runnable example on [`bind`].
 //!
 //! ## CLI
