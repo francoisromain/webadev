@@ -41,7 +41,7 @@ struct AppState {
     index: String,
 }
 
-/// Configuration for the dev server
+/// Configuration for the server
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Directory to serve and watch
@@ -56,7 +56,7 @@ pub struct Config {
     pub index: String,
 }
 
-/// A bound dev server, ready to run.
+/// A bound server, ready to run.
 /// `run` starts serving only when awaited, so the `url` can be shown first.
 #[derive(Debug)]
 pub struct Server {

@@ -8,7 +8,7 @@
   <br>
 </p>
 
-> A tiny web dev server with live reload, written in Rust.
+A web dev server with live reload.
 
 ## Features
 
@@ -109,7 +109,7 @@ server.run().await?;
 
 The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<PathBuf>)`:
 - `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload),
-- the changed paths.
+- `Vec<PathBuf`: the modified file paths.
 
 ### 3. Advanced: compose with your own axum router
 

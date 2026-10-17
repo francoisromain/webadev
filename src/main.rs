@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 use webadev::{Config, ReloadType, Server, watch};
 
 #[derive(Parser)]
-#[command(about = "A tiny static file server with live reload", version)]
+#[command(about = "A web dev server with live reload", version)]
 struct Args {
     /// Directory to serve and watch
     #[arg(short, long, default_value = ".")]

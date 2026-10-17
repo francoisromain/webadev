@@ -1,5 +1,5 @@
-//! A tiny web dev server with live reload, written in Rust.
-//! Usable as a CLI `webadev` or as a library.
+//! A web dev server with live reload.
+//! Usable as a CLI or as a library.
 //!
 //! See the [README](https://crates.io/crates/webadev)
 //! for features, CLI, and library usage.
@@ -7,8 +7,8 @@
 // Be strict with our own docs: every public item should be documented
 #![warn(missing_docs)]
 
-pub mod server;
-pub mod watcher;
+mod server;
+mod watcher;
 
 /// How to reload a browser tab on file change
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -6,7 +6,7 @@
 |---|---|---|---|
 | **Status** | new (Sep 2026) | maintained (Mar 2026) | new and very active (Sep 2026) |
 | **License** | MIT | MIT | MIT |
-| **Best for** | a tiny dev server you can also embed as a library | LAN/device testing with directory browsing | a full-featured dev *and* production static server |
+| **Best for** | a web dev server you can also embed as a library | LAN/device testing with directory browsing | a full-featured dev *and* production static server |
 | **Library API** | yes: `Server`, `bind`/`serve`, broadcast channel | yes: `listen(addr, root).start()` | no (bin only) |
 | **HTTP stack** | axum 0.8, async (tokio) | axum 0.8 + WS, async (tokio) | axum 0.8 + `tower-http`, async (tokio) |
 | **Reload transport** | **SSE** (`/livereload`, same port) | WebSocket (`/live-server-ws`, same port) | **SSE** (via `tower-livereload`, same port) |

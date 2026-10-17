@@ -26,8 +26,8 @@ const IDLE_TIME: Duration = Duration::from_secs(3600);
 // File extensions that trigger a reload
 const WEB_EXTENSIONS: &[&str] = &["html", "css", "js", "jsx", "ts", "tsx"];
 
-/// Run a background thread
-/// And watch a directory. When files change:
+/// Run a background thread and watch a directory.
+/// When files change:
 /// - Broadcast the reload type and the changed paths on `app_event_tx`
 ///
 /// # Examples
