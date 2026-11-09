@@ -15,7 +15,7 @@ struct Args {
     dir: PathBuf,
 
     /// Port to listen on
-    #[arg(short, long, default_value = "8080")]
+    #[arg(short, long, default_value = "0")]
     port: u16,
 
     /// IP address to bind to

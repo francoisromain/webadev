@@ -120,6 +120,61 @@ fn reap(child: &mut Child) -> String {
     out
 }
 
+/// Spawn the binary with `extra_args`, read stdout until it prints its URL,
+/// and return the child plus the resolved port.
+#[allow(
+    clippy::zombie_processes,
+    reason = "the caller keeps the server alive and reaps it with reap()"
+)]
+fn spawn_server_read_url(dir: &Path, extra_args: &[&str]) -> (Child, u16) {
+    let mut server = Command::new(env!("CARGO_BIN_EXE_webadev"))
+        .args(["--dir", dir.to_str().unwrap()])
+        .args(extra_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn webadev");
+
+    let (tx_stdout, rx_stdout) = std::sync::mpsc::channel::<String>();
+    let mut stdout = server.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 512];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    if tx_stdout.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut out = String::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        while let Ok(chunk) = rx_stdout.try_recv() {
+            out.push_str(&chunk);
+        }
+        if let Some(port) = out
+            .split("http://127.0.0.1:")
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|s| s.parse::<u16>().ok())
+        {
+            break (server, port);
+        }
+        if Instant::now() >= deadline {
+            let _ = server.kill();
+            let _ = server.wait();
+            panic!("server never printed its URL; stdout: {out}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 async fn start_dir() -> (tempfile::TempDir, u16, Child) {
     let dir = tempfile::tempdir().unwrap();
     tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
@@ -265,57 +320,7 @@ async fn port_zero_prints_real_port_and_injects_it() {
         .await
         .unwrap();
 
-    let mut server = Command::new(env!("CARGO_BIN_EXE_webadev"))
-        .args([
-            "--dir",
-            dir.path().to_str().unwrap(),
-            "--port",
-            "0",
-            "--ip",
-            "127.0.0.1",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn webadev");
-
-    let (tx_stdout, rx_stdout) = std::sync::mpsc::channel::<String>();
-    let mut stdout = server.stdout.take().unwrap();
-    let reader = std::thread::spawn(move || {
-        let mut buf = [0u8; 512];
-        loop {
-            match stdout.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    if tx_stdout.send(chunk).is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    });
-
-    let mut out = String::new();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let port = loop {
-        while let Ok(chunk) = rx_stdout.try_recv() {
-            out.push_str(&chunk);
-        }
-        if let Some(port) = out
-            .split("http://127.0.0.1:")
-            .nth(1)
-            .and_then(|s| s.split_whitespace().next())
-            .and_then(|s| s.parse::<u16>().ok())
-        {
-            break port;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "server never printed its URL; stdout: {out}"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--port", "0"]);
 
     wait_ready(port).await;
     let (_, body) = http_get(port, "/").await.expect("http get failed");
@@ -324,7 +329,29 @@ async fn port_zero_prints_real_port_and_injects_it() {
     assert!(html.contains("/livereload"));
 
     let stderr = reap(&mut server);
-    reader.join().ok();
+    drop(dir);
+    assert!(stderr.is_empty(), "server stderr:\n{stderr}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_port_is_random_and_reachable() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+
+    // No --port: the default (0) must be resolved to a real free port.
+    let (mut server, port) = spawn_server_read_url(dir.path(), &[]);
+    assert_ne!(port, 0, "server must report the resolved port, not 0");
+
+    wait_ready(port).await;
+    let (status, body) = http_get(port, "/").await.expect("http get failed");
+    assert_eq!(status, 200);
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains("EventSource"));
+    assert!(html.contains("/livereload"));
+
+    let stderr = reap(&mut server);
     drop(dir);
     assert!(stderr.is_empty(), "server stderr:\n{stderr}");
 }

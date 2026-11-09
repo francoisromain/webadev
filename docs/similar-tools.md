@@ -2,7 +2,7 @@
 
 ## Comparison table
 
-| | webadev 0.6.1 | live-server 0.11.1 | servio 0.7.0 |
+| | webadev 0.7 | live-server 0.11.1 | servio 0.7.0 |
 |---|---|---|---|
 | **Status** | new (Sep 2026) | maintained (Mar 2026) | new and very active (Sep 2026) |
 | **License** | MIT | MIT | MIT |
@@ -24,7 +24,7 @@
 | **Production mode / cache** | no (`no-cache` on everything) | no | yes: ETag, `no-store`/`no-cache`/immutable headers |
 | **Security headers** | no | no | yes (X-Content-Type-Options, X-Frame-Options, Referrer-Policy) |
 | **Browser open** | `--open` | `--open`/`--browser` | `--open` (+ `BROWSER` env) |
-| **Default host/port** | 127.0.0.1:8080 | **0.0.0.0:0** (LAN, random port) | 127.0.0.1:3030 (tries 3030–3039) |
+| **Default host/port** | 127.0.0.1:0 (random free port) | **0.0.0.0:0** (LAN, random port) | 127.0.0.1:3030 (tries 3030–3039) |
 | **Port 0 (random)** | yes | yes | no (dev: tries a range) |
 | **Structured logging** | no (println) | yes (env_logger / RUST_LOG) | yes (plain, color-aware) |
 | **≈ direct deps** | 7 | 13 | 11 + `tower-http`/`tower-livereload` |

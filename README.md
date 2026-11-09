@@ -12,11 +12,11 @@ A web dev server with live reload.
 
 ## Features
 
-- Serve a static folder (HTML/CSS/JS)
-- Live reload in the browser on file change (debounced by 200ms)
+- Serve a static folder with HTML, CSS, JS
+- Live reload in the browser on file change, debounced by 200ms
 - CSS hot-reload (no full page reload)
 - Smart script injection (no manual setup needed)
-- Auto-reconnect (reloads the page when the server restarts)
+- Auto-reconnect (reloads the page when the server restarts, requires a --port)
 - Custom IP/port support
 - Add headers
 
@@ -34,9 +34,9 @@ webadev
 ### Options
 
 - `--dir` / `-d`: directory to serve
-- `--port` / `-p`: port to run on (default: 8080, use `0` for a random free port)
+- `--port` / `-p`: port to run on (default: random free port)
 - `--ip` / `-i`: IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
-- `--open` / `-o`: open the page in the browser on start (false by default; live reload keeps an already-open tab in sync across restarts)
+- `--open` / `-o`: open the page in the browser on start (false by default)
 - `--header`: additional HTTP header on every response (repeatable), e.g. `--header "Access-Control-Allow-Origin: *"`
 - `--index`: default file for directory requests (default: `index.html`)
 
@@ -152,9 +152,9 @@ cargo build --release
 cargo install --path . --locked
 
 # use from anywhere.
-# serves the current directory on 127.0.0.1:8080
+# serves the current directory on 127.0.0.1:<resolved> (random free port by default)
 cd ~/some/project
-webadev           
+webadev
 
 # update later after source changes
 cargo install --path . --locked --force
