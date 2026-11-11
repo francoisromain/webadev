@@ -1,3 +1,5 @@
+#![cfg(feature = "serve")]
+
 use std::{
     io::Read,
     path::Path,

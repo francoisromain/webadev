@@ -160,6 +160,15 @@ webadev
 cargo install --path . --locked --force
 ```
 
+## Feature flags
+
+- `serve` (default): the HTTP server (`Config`, `Server`, `bind`, `serve`). 
+- `default-features = false`: watcher only (`watch`, `ReloadType`), disable the server and does not pull Axum as a dependency.
+
+```toml
+# watcher only, no HTTP server
+webadev = { version = "0.7", default-features = false }
+```
 
 ## Similar tools
 
