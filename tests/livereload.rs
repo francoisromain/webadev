@@ -316,6 +316,20 @@ async fn css_and_html_write_produce_full_reload() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn rooted_path_does_not_escape_docroot() {
+    let (dir, port, mut server) = start_dir().await;
+    let (status, _) = http_get(port, "//etc/passwd")
+        .await
+        .expect("http get failed");
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert_eq!(
+        status, 404,
+        "rooted path served a file outside the docroot; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn port_zero_prints_real_port_and_injects_it() {
     let dir = tempfile::tempdir().unwrap();
     tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")

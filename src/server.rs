@@ -8,7 +8,7 @@
 use std::{
     convert::Infallible,
     net::IpAddr,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -354,8 +354,24 @@ async fn files_serve(
     file_serve(&state.dir, &path, &state.index).await
 }
 
+// Reject any path that could escape the docroot.
+// The catch-all capture can keep a leading `/` (`GET //foo` captures `/foo`),
+// and `Path::join` replaces the docroot when given an absolute path.
+// Rooted paths, drive prefixes, `..` and `\` (a separator on Windows) are rejected.
+fn path_validate(path: &str) -> bool {
+    if path.contains('\\') {
+        return false;
+    }
+    !Path::new(path).components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    })
+}
+
 async fn file_serve(dir: &Path, path: &str, index: &str) -> Response {
-    if path.split('/').any(|segment| segment == "..") {
+    if !path_validate(path) {
         return html_not_found_build();
     }
 
@@ -533,6 +549,52 @@ mod tests {
         let app = test_app(dir.path());
         let (status, _) = get(&app, "/../../etc/passwd").await;
         assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn rooted_path_is_rejected() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html></html>");
+
+        // A file outside the docroot must never be served, even if `path`
+        // is an absolute path as captured from `GET //<absolute>`.
+        let outside = tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        write(&secret, "secret").unwrap();
+
+        let resp = file_serve(dir.path(), secret.to_str().unwrap(), "index.html").await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn parent_and_backslash_paths_are_rejected() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html></html>");
+
+        for path in [
+            "../index.html",
+            "sub/../../index.html",
+            "sub\\..\\index.html",
+        ] {
+            let resp = file_serve(dir.path(), path, "index.html").await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "path `{path}` must be rejected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn encoded_rooted_path_is_rejected() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html></html>");
+        let app = test_app(dir.path());
+
+        for uri in ["/%2Fetc/passwd", "/%2e%2e/etc/passwd"] {
+            let (status, _) = get(&app, uri).await;
+            assert_eq!(status, 404, "uri `{uri}` must be rejected");
+        }
     }
 
     #[tokio::test]
