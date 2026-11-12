@@ -18,7 +18,7 @@ use axum::{
     Router,
     body::{Body, Bytes},
     extract::{Path as UrlPath, State},
-    http::{HeaderName, HeaderValue, Request, StatusCode, header},
+    http::{HeaderName, HeaderValue, Request, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{
         Response,
@@ -39,6 +39,8 @@ struct AppState {
     tx: Sender<(ReloadType, Vec<PathBuf>)>,
     headers: Vec<(HeaderName, HeaderValue)>,
     index: String,
+    // Normalized url path prefix: empty (root) or `/prefix` without a trailing slash
+    base: String,
 }
 
 /// Configuration for the server
@@ -54,6 +56,9 @@ pub struct Config {
     pub headers: Vec<String>,
     /// Default file served for directory requests
     pub index: String,
+    /// URL path prefix (e.g. `/app`)
+    /// Empty or `/` serves at the root (default)
+    pub base: String,
 }
 
 /// A bound server, ready to run.
@@ -91,6 +96,7 @@ impl Server {
     ///         port: 0, // Let the OS pick a free port
     ///         headers: vec![],
     ///         index: "index.html".into(),
+    ///         base: String::new(),
     ///     };
     ///
     ///     let server = Server::bind(tx, config).await.unwrap();
@@ -139,6 +145,7 @@ impl Server {
     ///         port: 0, // Let the OS pick a free port
     ///         headers: vec![],
     ///         index: "index.html".into(),
+    ///         base: String::new(),
     ///     };
     ///
     ///     let server = Server::new(config).await.unwrap();
@@ -192,6 +199,7 @@ impl Server {
 ///         port: 0,
 ///         headers: vec![],
 ///         index: "index.html".into(),
+///         base: String::new(),
 ///     };
 ///
 ///     let (url, listener, router) = bind(tx, config).await.unwrap();
@@ -219,6 +227,8 @@ pub async fn bind(
 
     index_validate(&config.index).map_err(|err| format!("Invalid --index: {err}"))?;
 
+    let base = base_validate(&config.base).map_err(|err| format!("Invalid --base: {err}"))?;
+
     let listener = TcpListener::bind((config.ip, config.port))
         .await
         .map_err(|err| format!("Failed to bind address: {err}"))?;
@@ -227,9 +237,9 @@ pub async fn bind(
         .map_err(|err| format!("Failed to get bound address: {err}"))?;
 
     let url = if config.ip.is_unspecified() {
-        format!("http://127.0.0.1:{}", addr.port())
+        format!("http://127.0.0.1:{}{base}", addr.port())
     } else {
-        format!("http://{}:{}", config.ip, addr.port())
+        format!("http://{}:{}{base}", config.ip, addr.port())
     };
 
     let app = app_build(AppState {
@@ -237,6 +247,7 @@ pub async fn bind(
         tx,
         headers,
         index: config.index,
+        base,
     });
 
     Ok((url, listener, app))
@@ -257,10 +268,20 @@ pub async fn serve(listener: TcpListener, router: Router) -> Result<(), String> 
 
 fn app_build(state: AppState) -> Router {
     let state = Arc::new(state);
-    Router::new()
-        .route("/livereload", get(livereload))
-        .route("/", get(root_serve))
-        .route("/{*path}", get(files_serve))
+    let base = state.base.clone();
+
+    let mut router = Router::new()
+        .route(&format!("{base}/livereload"), get(livereload))
+        .route(&format!("{base}/"), get(root_serve))
+        .route(&format!("{base}/{{*path}}"), get(files_serve));
+
+    // A page served at `/app` would resolve relative URLs against `/`.
+    // Redirect to `/app/` instead so they resolve under the base.
+    if !base.is_empty() {
+        router = router.route(&base, get(base_redirect));
+    }
+
+    router
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, headers_middleware))
 }
@@ -286,6 +307,39 @@ fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, Strin
             Ok((name, value))
         })
         .collect()
+}
+
+// Validate and normalize the `--base` url path prefix:
+// - empty, `/` or `///` → "" (serve at the root)
+// - add a leading `/`, strip the trailing one (`app/` → `/app`)
+// - reject empty segments (`//`), `.`/`..` and any character that is either
+//   unsafe in a URL or meaningful in an axum route pattern (`*`, `{}`, `:`, ...)
+// `base` is interpolated into route patterns, so it must be validated strictly.
+fn base_validate(base: &str) -> Result<String, String> {
+    let base = base.trim();
+    if base.is_empty() || base.chars().all(|c| c == '/') {
+        return Ok(String::new());
+    }
+
+    let core = base.strip_prefix('/').unwrap_or(base);
+    let core = core.strip_suffix('/').unwrap_or(core);
+
+    for segment in core.split('/') {
+        if segment.is_empty() {
+            return Err("empty path segment (`//`)".into());
+        }
+        if segment == "." || segment == ".." {
+            return Err(format!("invalid path segment `{segment}`"));
+        }
+        if !segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
+        {
+            return Err(format!("invalid character in `{segment}`"));
+        }
+    }
+
+    Ok(format!("/{core}"))
 }
 
 // Validate the `--index` value: a bare filename only.
@@ -344,14 +398,28 @@ async fn livereload(
 }
 
 async fn root_serve(State(state): State<Arc<AppState>>) -> Response {
-    file_serve(&state.dir, "", &state.index).await
+    file_serve(&state.dir, "", &state.index, &state.base).await
 }
 
 async fn files_serve(
     State(state): State<Arc<AppState>>,
     UrlPath(path): UrlPath<String>,
 ) -> Response {
-    file_serve(&state.dir, &path, &state.index).await
+    file_serve(&state.dir, &path, &state.index, &state.base).await
+}
+
+// `/app` → `/app/`, keeping the query string.
+// Only registered when a base is set.
+async fn base_redirect(State(state): State<Arc<AppState>>, uri: Uri) -> Response {
+    let location = match uri.query() {
+        Some(query) => format!("{}/?{query}", state.base),
+        None => format!("{}/", state.base),
+    };
+    Response::builder()
+        .status(StatusCode::PERMANENT_REDIRECT)
+        .header(header::LOCATION, location)
+        .body(Body::empty())
+        .expect("failed to build response")
 }
 
 // Reject any path that could escape the docroot.
@@ -370,7 +438,7 @@ fn path_validate(path: &str) -> bool {
     })
 }
 
-async fn file_serve(dir: &Path, path: &str, index: &str) -> Response {
+async fn file_serve(dir: &Path, path: &str, index: &str, base: &str) -> Response {
     if !path_validate(path) {
         return html_not_found_build();
     }
@@ -391,7 +459,7 @@ async fn file_serve(dir: &Path, path: &str, index: &str) -> Response {
     let is_html = file_path.extension().and_then(|e| e.to_str()) == Some("html");
     if is_html {
         match String::from_utf8(bytes) {
-            Ok(html) => html_response_build(js_script_inject(&html)),
+            Ok(html) => html_response_build(js_script_inject(&html, base)),
             Err(err) => html_response_build(err.into_bytes()),
         }
     } else {
@@ -421,9 +489,10 @@ fn html_not_found_build() -> Response {
         .expect("failed to build response")
 }
 
-fn js_script_inject(html: &str) -> String {
+fn js_script_inject(html: &str, base: &str) -> String {
+    // `format!` would require escaping every brace in the JS; substitute the base instead.
     let script = r#"<script>
-        const es = new EventSource('/livereload');
+        const es = new EventSource('__BASE__/livereload');
         let first = true;
         es.addEventListener('open', () => {
             if (first) {
@@ -445,6 +514,7 @@ fn js_script_inject(html: &str) -> String {
         });
         es.addEventListener('error', () => console.warn('[webadev] live reload connection lost', es.readyState));
     </script>"#;
+    let script = script.replace("__BASE__", base);
 
     if html.contains("</body>") {
         html.replace("</body>", &format!("{}\n</body>", script))
@@ -483,6 +553,14 @@ mod tests {
     }
 
     fn test_app_with_headers_and_index(dir: &Path, headers: &[&str], index: &str) -> Router {
+        test_app_full(dir, headers, index, "")
+    }
+
+    fn test_app_with_base(dir: &Path, base: &str) -> Router {
+        test_app_full(dir, &[], "index.html", base)
+    }
+
+    fn test_app_full(dir: &Path, headers: &[&str], index: &str, base: &str) -> Router {
         let (tx, _rx) = broadcast::channel(8);
         let headers = headers.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         app_build(AppState {
@@ -490,6 +568,7 @@ mod tests {
             tx,
             headers: headers_parse(&headers).unwrap(),
             index: index.to_string(),
+            base: base_validate(base).unwrap(),
         })
     }
 
@@ -520,7 +599,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("hi"));
         assert!(html.contains("EventSource"));
-        assert!(html.contains("/livereload"));
+        assert!(html.contains("EventSource('/livereload')"));
         assert!(html.contains("reload"));
     }
 
@@ -562,7 +641,7 @@ mod tests {
         let secret = outside.path().join("secret.txt");
         write(&secret, "secret").unwrap();
 
-        let resp = file_serve(dir.path(), secret.to_str().unwrap(), "index.html").await;
+        let resp = file_serve(dir.path(), secret.to_str().unwrap(), "index.html", "").await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
@@ -576,7 +655,7 @@ mod tests {
             "sub/../../index.html",
             "sub\\..\\index.html",
         ] {
-            let resp = file_serve(dir.path(), path, "index.html").await;
+            let resp = file_serve(dir.path(), path, "index.html", "").await;
             assert_eq!(
                 resp.status(),
                 StatusCode::NOT_FOUND,
@@ -616,6 +695,110 @@ mod tests {
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         assert_eq!(body, raw);
+    }
+
+    #[tokio::test]
+    async fn serves_under_base_prefix() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html><body>hi</body></html>");
+        html_write(dir.path(), "sub/index.html", "<html>sub</html>");
+        let app = test_app_with_base(dir.path(), "/app");
+
+        let (status, body) = get(&app, "/app/").await;
+        assert_eq!(status, 200);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("hi"));
+        assert!(html.contains("EventSource('/app/livereload')"));
+
+        let (status, body) = get(&app, "/app/sub").await;
+        assert_eq!(status, 200);
+        assert!(String::from_utf8(body).unwrap().contains("sub"));
+    }
+
+    #[tokio::test]
+    async fn base_redirects_to_trailing_slash() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_with_base(dir.path(), "/app");
+
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/app").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(resp.headers()["location"], "/app/");
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/app?x=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.headers()["location"], "/app/?x=1");
+    }
+
+    #[tokio::test]
+    async fn base_does_not_serve_outside_prefix() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        html_write(dir.path(), "style.css", "body {}");
+        let app = test_app_with_base(dir.path(), "/app");
+
+        for uri in ["/", "/index.html", "/style.css", "/appfoo/", "/app2/"] {
+            let (status, _) = get(&app, uri).await;
+            assert_eq!(status, 404, "uri `{uri}` must be outside the base");
+        }
+    }
+
+    #[tokio::test]
+    async fn base_rejects_rooted_and_traversal_paths() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_with_base(dir.path(), "/app");
+
+        for uri in [
+            "/app//etc/passwd",
+            "/app/%2Fetc/passwd",
+            "/app/%2e%2e/etc/passwd",
+        ] {
+            let (status, _) = get(&app, uri).await;
+            assert_eq!(status, 404, "uri `{uri}` must be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn base_serves_with_custom_headers() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let app = test_app_full(dir.path(), &["X-Custom: yes"], "index.html", "/app");
+        let headers = headers_get(&app, "/app/").await;
+        assert_eq!(headers["X-Custom"], "yes");
+    }
+
+    #[tokio::test]
+    async fn server_url_includes_base() {
+        let dir = tempdir().unwrap();
+        html_write(dir.path(), "index.html", "<html>hi</html>");
+        let (tx, _rx) = broadcast::channel(8);
+        let mut config = test_config(dir.path());
+        config.base = "/app".into();
+        let server = Server::bind(tx, config).await.unwrap();
+        assert!(server.url.ends_with("/app"), "url: {}", server.url);
+    }
+
+    #[tokio::test]
+    async fn invalid_base_is_rejected_at_bind() {
+        let dir = tempdir().unwrap();
+        let (tx, _rx) = broadcast::channel(8);
+        let mut config = test_config(dir.path());
+        config.base = "/{*x}".into();
+        let err = Server::bind(tx, config).await.unwrap_err();
+        assert!(err.contains("Invalid --base"), "error: {err}");
     }
 
     async fn headers_get(app: &Router, uri: &str) -> HeaderMap {
@@ -679,6 +862,7 @@ mod tests {
             port: 0,
             headers: vec![],
             index: "index.html".into(),
+            base: String::new(),
         }
     }
 
@@ -728,6 +912,38 @@ mod tests {
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         assert_eq!(String::from_utf8(body).unwrap(), "# readme");
+    }
+
+    #[test]
+    fn base_validate_normalizes() {
+        assert_eq!(base_validate("").unwrap(), "");
+        assert_eq!(base_validate("/").unwrap(), "");
+        assert_eq!(base_validate("///").unwrap(), "");
+        assert_eq!(base_validate("app").unwrap(), "/app");
+        assert_eq!(base_validate("app/").unwrap(), "/app");
+        assert_eq!(base_validate("/app/").unwrap(), "/app");
+        assert_eq!(base_validate(" /app ").unwrap(), "/app");
+        assert_eq!(base_validate("/a/b").unwrap(), "/a/b");
+    }
+
+    #[test]
+    fn invalid_base_is_rejected() {
+        for base in [
+            "//app",
+            "app//sub",
+            "/app/../x",
+            "/app/./x",
+            "/app?x=1",
+            "/app#x",
+            "/{*x}",
+            "/a:b",
+            "/a b",
+            "/a%20b",
+            "\\app",
+            "https://example.com/app",
+        ] {
+            assert!(base_validate(base).is_err(), "`{base}` must be rejected");
+        }
     }
 
     #[test]

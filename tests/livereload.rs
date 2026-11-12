@@ -60,9 +60,13 @@ async fn http_get(port: u16, path: &str) -> Option<(u16, Vec<u8>)> {
 }
 
 async fn wait_ready(port: u16) {
+    wait_ready_at(port, "/").await;
+}
+
+async fn wait_ready_at(port: u16, path: &str) {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if let Some((200, _)) = http_get(port, "/").await {
+        if let Some((200, _)) = http_get(port, path).await {
             return;
         }
         tokio::time::sleep(Duration::from_millis(30)).await;
@@ -71,11 +75,15 @@ async fn wait_ready(port: u16) {
 }
 
 async fn sse_connect(port: u16) -> tokio::net::TcpStream {
+    sse_connect_at(port, "/livereload").await
+}
+
+async fn sse_connect_at(port: u16, path: &str) -> tokio::net::TcpStream {
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .expect("sse connect failed");
     let req = format!(
-        "GET /livereload HTTP/1.1\r\n\
+        "GET {path} HTTP/1.1\r\n\
          Host: 127.0.0.1:{port}\r\n\
          Accept: text/event-stream\r\n\
          Connection: close\r\n\r\n"
@@ -163,7 +171,11 @@ fn spawn_server_read_url(dir: &Path, extra_args: &[&str]) -> (Child, u16) {
         if let Some(port) = out
             .split("http://127.0.0.1:")
             .nth(1)
-            .and_then(|s| s.split_whitespace().next())
+            .map(|s| {
+                s.chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+            })
             .and_then(|s| s.parse::<u16>().ok())
         {
             break (server, port);
@@ -326,6 +338,52 @@ async fn rooted_path_does_not_escape_docroot() {
     assert_eq!(
         status, 404,
         "rooted path served a file outside the docroot; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn serves_under_base_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+    tokio::fs::write(dir.path().join("style.css"), "body {}")
+        .await
+        .unwrap();
+
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--base", "/app"]);
+    wait_ready_at(port, "/app/").await;
+
+    let (status, body) = http_get(port, "/app/").await.expect("http get failed");
+    assert_eq!(status, 200);
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains("EventSource('/app/livereload')"));
+
+    // Outside the base: nothing is served.
+    for path in ["/", "/style.css", "/appfoo/"] {
+        let (status, _) = http_get(port, path).await.expect("http get failed");
+        assert_eq!(status, 404, "`{path}` must be outside the base");
+    }
+
+    // `/app` redirects to `/app/` so relative urls resolve correctly.
+    let (status, _) = http_get(port, "/app").await.expect("http get failed");
+    assert_eq!(status, 308);
+
+    let mut sse = sse_connect_at(port, "/app/livereload").await;
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+        .await
+        .unwrap();
+    let (count, has_data) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert_eq!(
+        count, 1,
+        "expected 1 reload, got {count}; server stderr:\n{stderr}"
+    );
+    assert!(
+        has_data,
+        "reload event must include a data field; server stderr:\n{stderr}"
     );
 }
 

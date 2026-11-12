@@ -33,6 +33,10 @@ struct Args {
     /// Default file served for directory requests
     #[arg(long, default_value = "index.html")]
     index: String,
+
+    /// URL path prefix to serve under, e.g. `--base /app` (default: none)
+    #[arg(long, default_value = "")]
+    base: String,
 }
 
 #[tokio::main]
@@ -58,6 +62,7 @@ async fn main() {
         port: args.port,
         headers: args.header,
         index: args.index,
+        base: args.base,
     };
 
     let server = match Server::bind(tx, config).await {

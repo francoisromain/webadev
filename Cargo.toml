@@ -1,6 +1,6 @@
 [package]
 name = "webadev"
-version = "0.7.2"
+version = "0.8.0"
 edition = "2024"
 description = "A web dev server with live reload"
 license = "MIT"
@@ -11,7 +11,7 @@ documentation = "https://docs.rs/webadev"
 rust-version = "1.88"
 keywords = ["server", "live-reload", "web", "development", "watch"]
 categories = ["development-tools"]
-exclude = ["client/**", "sessions/**"]
+exclude = ["client/**", "sessions/**", "docs/**"]
 
 [features]
 default = ["serve"]

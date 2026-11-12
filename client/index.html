@@ -45,6 +45,7 @@
       <li>Smart script injection (no manual setup needed)</li>
       <li>Auto-reconnect (reloads the page when the server restarts, requires a --port)</li>
       <li>Custom IP/port support</li>
+      <li>Serve under a URL path prefix</li>
     </ul>
 
     <p>If you need to bundle and serve, check [Bundla](https://crates.io/crates/bundla).</p>
@@ -73,12 +74,13 @@ webadev</code></pre>
       </li>
       <li>
         <code>--header</code>: additional HTTP header on every response
-        (repeatable), e.g.
-        <code>--header "Access-Control-Allow-Origin: *"</code>
+        (repeatable; e.g. <code>--header "Access-Control-Allow-Origin: *"</code>)
       </li>
       <li>
-        <code>--index</code>: default file for directory requests (default:
-        <code>index.html</code>)
+        <code>--index</code>: default file for directory requests (default: <code>index.html</code>)
+      </li>
+      <li>
+        <code>--base</code>: URL path prefix (default: root; e.g. <code>--base /app</code>)
       </li>
     </ul>
 
@@ -91,6 +93,10 @@ webadev</code></pre>
     <pre><code>./target/release/webadev --dir ./client --port 9000 --ip 0.0.0.0
 
 # visit: http://&lt;your-local-ip&gt;:9000</code></pre>
+    <p>Serve under a path prefix.</p>
+    <pre><code>webadev --base /app
+
+# visit: http://127.0.0.1:&lt;port&gt;/app/</code></pre>
 
     <h2 id="library">Library</h2>
     <p>From simplest to most control.</p>
@@ -107,6 +113,7 @@ let config = Config {
     port: 8080,
     headers: vec![],
     index: "index.html".into(),
+    base: String::new(),
 };
 
 let server = Server::new(config).await?;   // binds; url known, not serving yet
@@ -115,6 +122,10 @@ server.run().await?;                        // blocks until shutdown</code></pre
     <p>
       Use <code>0</code> as <code>config.port</code> to let the OS pick a free
       port (the chosen port is visible in <code>server.url</code>).
+    </p>
+    <p>
+      Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty or <code>/</code> serves at the
+      root.
     </p>
 
     <h3 id="with-live-reload">2. With live reload</h3>
@@ -133,6 +144,7 @@ let config = Config {
     port: 8080,
     headers: vec![],
     index: "index.html".into(),
+    base: String::new(),
 };
 
 let server = Server::bind(tx, config).await?;  // watches upstream, drives reloads
@@ -159,6 +171,7 @@ let config = Config {
     port: 8080,
     headers: vec![],
     index: "index.html".into(),
+    base: String::new(),
 };
 let (url, listener, router) = bind(tx, config).await?;
 // here you can tweak the axum router
