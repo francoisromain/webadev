@@ -84,7 +84,8 @@ webadev</code></pre>
         <code>--index</code>: default file for directory requests (default: <code>index.html</code>)
       </li>
       <li>
-        <code>--base</code>: URL path prefix (default: root; e.g. <code>--base /app</code>).
+        <code>--base</code>: URL path prefix, must start with <code>/</code>
+        (default: root; e.g. <code>--base /app</code>).
         Pages must reference assets relatively (./style.css) or include the
         prefix (/app/style.css).
       </li>
@@ -131,7 +132,7 @@ server.run().await?;                        // blocks until shutdown</code></pre
     </p>
     <p>
       Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty string or <code>/</code> serves at the
-      root.
+      root; any other value must start with <code>/</code>.
     </p>
 
     <h3 id="with-live-reload">2. With live reload</h3>
@@ -191,12 +192,14 @@ serve(listener, router).await?;</code></pre>
     <p>
       <code>base_normalize</code> validates and normalizes a URL path prefix with
       the same rules the server applies. Returns the normalized prefix (empty
-      string for the site root), or an error.
+      string for the site root), or an error. A non-empty prefix must start
+      with <code>/</code>.
     </p>
     <pre><code>use webadev::base_normalize;
 
-assert_eq!(base_normalize("app/").unwrap(), "/app");
+assert_eq!(base_normalize("/app/").unwrap(), "/app");
 assert_eq!(base_normalize("/").unwrap(), ""); // the site root
+assert!(base_normalize("app").is_err());      // must start with `/`
 assert!(base_normalize("/app/../x").is_err());</code></pre>
 
     <h3 id="feature-flags">Feature flags</h3>

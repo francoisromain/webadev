@@ -34,8 +34,8 @@ struct Args {
     #[arg(long, default_value = "index.html")]
     index: String,
 
-    /// URL path prefix to serve under, e.g. `--base /app` (default: none)
-    #[arg(long, default_value = "")]
+    /// URL path prefix to serve under, must start with `/`, e.g. `--base /app` (default: none)
+    #[arg(long, default_value = "", hide_default_value = true)]
     base: String,
 }
 

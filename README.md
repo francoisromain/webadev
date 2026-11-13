@@ -42,7 +42,7 @@ webadev
 - `--open` / `-o`: open the page in the browser on start (default: false)
 - `--header`: additional HTTP header on every response (repeatable; e.g. `--header "Access-Control-Allow-Origin: *"`)
 - `--index`: default file for directory requests (default: `index.html`)
-- `--base`: URL path prefix (default: root; e.g. `--base /app`). Pages must reference assets relatively (./style.css) or include the prefix (/app/style.css).
+- `--base`: URL path prefix, must start with `/` (default: root; e.g. `--base /app`). Pages must reference assets relatively (./style.css) or include the prefix (/app/style.css).
 
 ### Examples
 
@@ -96,7 +96,7 @@ server.run().await?;                        // blocks until shutdown
 
 Use `0` as `config.port` to let the OS pick a free port (the chosen port is visible in `server.url`).
 
-Set `config.base` to prefix the path (e.g. `/app`). Empty string or `/` serves at the root.
+Set `config.base` to prefix the path (e.g. `/app`). Empty string or `/` serves at the root; any other value must start with `/`.
 
 ### 2. With live reload
 
@@ -153,13 +153,14 @@ serve(listener, router).await?;
 
 ### Helper
 
-`base_normalize` validates and normalizes a URL path prefix with the same rules the server applies. Returns the normalized prefix (empty string for the site root), or an error.
+`base_normalize` validates and normalizes a URL path prefix with the same rules the server applies. Returns the normalized prefix (empty string for the site root), or an error. A non-empty prefix must start with `/`.
 
 ```rust
 use webadev::base_normalize;
 
-assert_eq!(base_normalize("app/").unwrap(), "/app");
+assert_eq!(base_normalize("/app/").unwrap(), "/app");
 assert_eq!(base_normalize("/").unwrap(), ""); // the site root
+assert!(base_normalize("app").is_err());      // must start with `/`
 assert!(base_normalize("/app/../x").is_err());
 ```
 

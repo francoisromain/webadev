@@ -57,7 +57,7 @@ pub struct Config {
     /// Default file served for directory requests
     pub index: String,
     /// URL path prefix (e.g. `/app`)
-    /// Empty or `/` serves at the root (default)
+    /// Empty or `/` serves at the root (default); any other value must start with `/`
     pub base: String,
 }
 
