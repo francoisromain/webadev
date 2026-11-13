@@ -32,7 +32,7 @@ use tokio::{
     sync::broadcast::{self, Sender, error::RecvError},
 };
 
-use crate::ReloadType;
+use crate::{ReloadType, base_normalize};
 
 struct AppState {
     dir: PathBuf,
@@ -227,7 +227,7 @@ pub async fn bind(
 
     index_validate(&config.index).map_err(|err| format!("Invalid --index: {err}"))?;
 
-    let base = base_validate(&config.base).map_err(|err| format!("Invalid --base: {err}"))?;
+    let base = base_normalize(&config.base).map_err(|err| format!("Invalid --base: {err}"))?;
 
     let listener = TcpListener::bind((config.ip, config.port))
         .await
@@ -307,39 +307,6 @@ fn headers_parse(raw: &[String]) -> Result<Vec<(HeaderName, HeaderValue)>, Strin
             Ok((name, value))
         })
         .collect()
-}
-
-// Validate and normalize the `--base` url path prefix:
-// - empty, `/` or `///` → "" (serve at the root)
-// - add a leading `/`, strip the trailing one (`app/` → `/app`)
-// - reject empty segments (`//`), `.`/`..` and any character that is either
-//   unsafe in a URL or meaningful in an axum route pattern (`*`, `{}`, `:`, ...)
-// `base` is interpolated into route patterns, so it must be validated strictly.
-fn base_validate(base: &str) -> Result<String, String> {
-    let base = base.trim();
-    if base.is_empty() || base.chars().all(|c| c == '/') {
-        return Ok(String::new());
-    }
-
-    let core = base.strip_prefix('/').unwrap_or(base);
-    let core = core.strip_suffix('/').unwrap_or(core);
-
-    for segment in core.split('/') {
-        if segment.is_empty() {
-            return Err("empty path segment (`//`)".into());
-        }
-        if segment == "." || segment == ".." {
-            return Err(format!("invalid path segment `{segment}`"));
-        }
-        if !segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
-        {
-            return Err(format!("invalid character in `{segment}`"));
-        }
-    }
-
-    Ok(format!("/{core}"))
 }
 
 // Validate the `--index` value: a bare filename only.
@@ -568,7 +535,7 @@ mod tests {
             tx,
             headers: headers_parse(&headers).unwrap(),
             index: index.to_string(),
-            base: base_validate(base).unwrap(),
+            base: base_normalize(base).unwrap(),
         })
     }
 
@@ -912,38 +879,6 @@ mod tests {
         let (status, body) = get(&app, "/").await;
         assert_eq!(status, 200);
         assert_eq!(String::from_utf8(body).unwrap(), "# readme");
-    }
-
-    #[test]
-    fn base_validate_normalizes() {
-        assert_eq!(base_validate("").unwrap(), "");
-        assert_eq!(base_validate("/").unwrap(), "");
-        assert_eq!(base_validate("///").unwrap(), "");
-        assert_eq!(base_validate("app").unwrap(), "/app");
-        assert_eq!(base_validate("app/").unwrap(), "/app");
-        assert_eq!(base_validate("/app/").unwrap(), "/app");
-        assert_eq!(base_validate(" /app ").unwrap(), "/app");
-        assert_eq!(base_validate("/a/b").unwrap(), "/a/b");
-    }
-
-    #[test]
-    fn invalid_base_is_rejected() {
-        for base in [
-            "//app",
-            "app//sub",
-            "/app/../x",
-            "/app/./x",
-            "/app?x=1",
-            "/app#x",
-            "/{*x}",
-            "/a:b",
-            "/a b",
-            "/a%20b",
-            "\\app",
-            "https://example.com/app",
-        ] {
-            assert!(base_validate(base).is_err(), "`{base}` must be rejected");
-        }
     }
 
     #[test]

@@ -46,9 +46,13 @@
       <li>Auto-reconnect (reloads the page when the server restarts, requires a --port)</li>
       <li>Custom IP/port support</li>
       <li>Serve under a URL path prefix</li>
+      <li>Add headers</li>
     </ul>
 
-    <p>If you need to bundle and serve, check [Bundla](https://crates.io/crates/bundla).</p>
+    <p>
+      If you need to bundle and serve, check
+      <a href="https://crates.io/crates/bundla">Bundla</a>.
+    </p>
 
     <h2 id="cli">CLI</h2>
 
@@ -60,7 +64,7 @@ webadev</code></pre>
 
     <h3 id="options">Options</h3>
     <ul>
-      <li><code>--dir</code> / <code>-d</code>: directory to serve</li>
+      <li><code>--dir</code> / <code>-d</code>: directory to serve (default: <code>.</code>)</li>
       <li>
         <code>--port</code> / <code>-p</code>: port to run on (default: random free port)
       </li>
@@ -70,7 +74,7 @@ webadev</code></pre>
       </li>
       <li>
         <code>--open</code> / <code>-o</code>: open the page in the browser on start
-        (false by default)
+        (default: false)
       </li>
       <li>
         <code>--header</code>: additional HTTP header on every response
@@ -80,7 +84,9 @@ webadev</code></pre>
         <code>--index</code>: default file for directory requests (default: <code>index.html</code>)
       </li>
       <li>
-        <code>--base</code>: URL path prefix (default: root; e.g. <code>--base /app</code>)
+        <code>--base</code>: URL path prefix (default: root; e.g. <code>--base /app</code>).
+        Pages must reference assets relatively (./style.css) or include the
+        prefix (/app/style.css).
       </li>
     </ul>
 
@@ -93,7 +99,7 @@ webadev</code></pre>
     <pre><code>./target/release/webadev --dir ./client --port 9000 --ip 0.0.0.0
 
 # visit: http://&lt;your-local-ip&gt;:9000</code></pre>
-    <p>Serve under a path prefix.</p>
+    <p>Serve under a path prefix <code>/app/</code>.</p>
     <pre><code>webadev --base /app
 
 # visit: http://127.0.0.1:&lt;port&gt;/app/</code></pre>
@@ -124,7 +130,7 @@ server.run().await?;                        // blocks until shutdown</code></pre
       port (the chosen port is visible in <code>server.url</code>).
     </p>
     <p>
-      Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty or <code>/</code> serves at the
+      Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty string or <code>/</code> serves at the
       root.
     </p>
 
@@ -134,7 +140,7 @@ use std::path::PathBuf;
 use tokio::sync::broadcast;
 use webadev::{Config, Server, watch};
 
-let dir: PathBuf = ".".into();           // watch the current directory
+let dir: PathBuf = ".".into();           // directory to watch and serve
 let (tx, _rx) = broadcast::channel(100); // keep a receiver alive so watch() can send
 watch(tx.clone(), &dir)?;
 
@@ -151,14 +157,18 @@ let server = Server::bind(tx, config).await?;  // watches upstream, drives reloa
 server.run().await?;</code></pre>
     <p>
       The <code>broadcast</code> channel notifies subscribers of reload events
-      <code>(ReloadType, Vec&lt;PathBuf&gt;)</code> with:
-    <ul>
-      <li><code>ReloadType::Css</code> (CSS-only) or <code>ReloadType::Page</code>,</li>
-      <li>(full reload) plus the changed paths.</li>
-    </ul>
+      <code>(ReloadType, Vec&lt;PathBuf&gt;)</code>:
     </p>
+    <ul>
+      <li>
+        <code>ReloadType::Css</code> (CSS-only) or <code>ReloadType::Page</code>
+        (full reload),
+      </li>
+      <li><code>Vec&lt;PathBuf&gt;</code>: the modified file paths.</li>
+    </ul>
 
     <h3 id="advanced">3. Advanced: compose with your own axum router</h3>
+    <p>Use the low-level <code>bind</code> and <code>serve</code>:</p>
     <pre><code>use std::path::PathBuf;
 use tokio::sync::broadcast;
 use webadev::{Config, bind, serve};
@@ -177,6 +187,35 @@ let (url, listener, router) = bind(tx, config).await?;
 // here you can tweak the axum router
 serve(listener, router).await?;</code></pre>
 
+    <h3 id="helper">Helper</h3>
+    <p>
+      <code>base_normalize</code> validates and normalizes a URL path prefix with
+      the same rules the server applies. Returns the normalized prefix (empty
+      string for the site root), or an error.
+    </p>
+    <pre><code>use webadev::base_normalize;
+
+assert_eq!(base_normalize("app/").unwrap(), "/app");
+assert_eq!(base_normalize("/").unwrap(), ""); // the site root
+assert!(base_normalize("/app/../x").is_err());</code></pre>
+
+    <h3 id="feature-flags">Feature flags</h3>
+    <ul>
+      <li>
+        <code>serve</code> (default): server (<code>Config</code>,
+        <code>Server</code>, <code>bind</code>, <code>serve</code>), watcher
+        (<code>watch</code>, <code>ReloadType</code>) and
+        <code>base_normalize</code>.
+      </li>
+      <li>
+        <code>default-features = false</code>: watcher (<code>watch</code>,
+        <code>ReloadType</code>) and <code>base_normalize</code>, without the
+        server. Does not pull Axum as a dependency.
+      </li>
+    </ul>
+    <pre><code># watcher only, no HTTP server
+webadev = { version = "0.9", default-features = false }</code></pre>
+
     <h2 id="local-installation">Local installation</h2>
 
     <pre><code># clone the repo
@@ -194,9 +233,9 @@ cargo build --release
 cargo install --path . --locked
 
 # use from anywhere.
-# serves the current directory on 127.0.0.1:<resolved> (random free port)
+# serves the current directory on 127.0.0.1:<resolved> (random free port by default)
 cd ~/some/project
-webadev           
+webadev
 
 # update later after source changes
 cargo install --path . --locked --force</code></pre>
@@ -206,6 +245,12 @@ cargo install --path . --locked --force</code></pre>
       <li><a href="https://crates.io/crates/live-server">live-server</a></li>
       <li><a href="https://crates.io/crates/servio">servio</a></li>
     </ul>
+
+    <p>
+      See
+      <a href="https://github.com/francoisromain/webadev/blob/main/docs/similar-tools.md">docs/similar-tools.md</a>
+      for a comparison table.
+    </p>
   </main>
 
   <h2 id="version-history">Version history</h2>

@@ -1,9 +1,12 @@
 //! A web dev server with live reload.
 //! Usable as a CLI or as a library.
 //!
-//! The HTTP server (`Config`, `Server`, `bind`, `serve`) is behind the
-//! `serve` feature, enabled by default. Disable it to use only the watcher
-//! ([`watch`] and [`ReloadType`]).
+//! Feature flags:
+//! - `serve` (default): server (`Config`, `Server`, `bind`, `serve`),
+//!   watcher ([`watch`], [`ReloadType`]) and [`base_normalize`].
+//! - `default-features = false`: watcher ([`watch`], [`ReloadType`])
+//!   and [`base_normalize`], without the server.
+//!   Does not pull Axum as a dependency.
 //!
 //! See the [README](https://crates.io/crates/webadev)
 //! for features, CLI, and library usage.
@@ -11,6 +14,7 @@
 // Be strict with our own docs: every public item should be documented
 #![warn(missing_docs)]
 
+mod helpers;
 #[cfg(feature = "serve")]
 mod server;
 mod watcher;
@@ -41,6 +45,7 @@ impl ReloadType {
     }
 }
 
+pub use helpers::base_normalize;
 #[cfg(feature = "serve")]
 pub use server::{Config, Server, bind, serve};
 pub use watcher::watch;

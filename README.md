@@ -8,7 +8,7 @@
   <br>
 </p>
 
-A web dev server with live reload.
+A web dev server with live reload, written in Rust.
 
 ## Features
 
@@ -24,6 +24,8 @@ A web dev server with live reload.
 > If you need to bundle and serve, check [Bundla](https://crates.io/crates/bundla).
 
 ## CLI
+
+### Install and run
 
 ```bash
 cargo install webadev
@@ -123,7 +125,7 @@ server.run().await?;
 
 The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<PathBuf>)`:
 - `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload),
-- `Vec<PathBuf`: the modified file paths.
+- `Vec<PathBuf>`: the modified file paths.
 
 ### 3. Advanced: compose with your own axum router
 
@@ -147,6 +149,28 @@ let config = Config {
 let (url, listener, router) = bind(tx, config).await?;
 // here you can tweak the axum router
 serve(listener, router).await?;
+```
+
+### Helper
+
+`base_normalize` validates and normalizes a URL path prefix with the same rules the server applies. Returns the normalized prefix (empty string for the site root), or an error.
+
+```rust
+use webadev::base_normalize;
+
+assert_eq!(base_normalize("app/").unwrap(), "/app");
+assert_eq!(base_normalize("/").unwrap(), ""); // the site root
+assert!(base_normalize("/app/../x").is_err());
+```
+
+### Feature flags
+
+- `serve` (default): server (`Config`, `Server`, `bind`, `serve`), watcher (`watch`, `ReloadType`) and `base_normalize`.
+- `default-features = false`: watcher (`watch`, `ReloadType`) and `base_normalize`, without the server. Does not pull Axum as a dependency.
+
+```toml
+# watcher only, no HTTP server
+webadev = { version = "0.9", default-features = false }
 ```
 
 ## Local installation
@@ -173,16 +197,6 @@ webadev
 
 # update later after source changes
 cargo install --path . --locked --force
-```
-
-## Feature flags
-
-- `serve` (default): the HTTP server (`Config`, `Server`, `bind`, `serve`). 
-- `default-features = false`: watcher only (`watch`, `ReloadType`), disable the server and does not pull Axum as a dependency.
-
-```toml
-# watcher only, no HTTP server
-webadev = { version = "0.7", default-features = false }
 ```
 
 ## Similar tools
