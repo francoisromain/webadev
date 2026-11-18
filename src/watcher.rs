@@ -17,7 +17,7 @@ use std::{
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
-use crate::ReloadType;
+use crate::{ReloadType, filter};
 
 // Stay quiet this long after a change, so a burst of rapid changes collapses into one reload
 const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
@@ -29,8 +29,10 @@ const IDLE_TIME: Duration = Duration::from_secs(3600);
 /// When files change:
 /// - Broadcast the reload type and the changed paths on `app_event_tx`
 ///
-/// `filter` lists allowed file extensions (without dot), e.g. `&["html","css","toml"]`.
-/// If `filter` is empty, all file types are watched.
+/// `filter` lists the watched file name suffixes, e.g. `&["html", "one-file.html"]`.
+/// Each item is trimmed and lowercased, a leading dot or path separator is rejected,
+/// and empty items are ignored. If the resulting filter is empty, all files are watched.
+/// An item matches when the file name equals `<item>` or ends with `.<item>`.
 ///
 /// # Examples
 ///
@@ -47,11 +49,11 @@ pub fn watch(
     app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
     filter: &[&str],
-) -> Result<(), notify::Error> {
+) -> Result<(), String> {
     let dir = dir.as_ref().to_path_buf();
+    let filter = filter::normalize(filter)?;
     let (watcher_event_tx, watcher_event_rx) = mpsc::channel::<Result<Event, notify::Error>>();
-    let filter_owned: Vec<String> = filter.iter().map(|s| s.to_string()).collect();
-    let watcher = watcher_build(dir, watcher_event_tx, filter_owned)?;
+    let watcher = watcher_build(dir, watcher_event_tx, filter).map_err(|err| err.to_string())?;
 
     // Run in the background to avoid blocking the main thread
     // `_watcher` keeps the notify thread alive
@@ -98,9 +100,7 @@ fn event_filter(mut event: Event, filter: &[String]) -> Option<Event> {
         return None;
     }
 
-    event
-        .paths
-        .retain(|path| file_extension_check(path, filter));
+    event.paths.retain(|path| filter::matches(path, filter));
 
     if event.paths.is_empty() {
         return None;
@@ -114,15 +114,6 @@ fn event_kind_check(kind: &EventKind) -> bool {
         kind,
         EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
     )
-}
-
-fn file_extension_check(path: &Path, filter: &[String]) -> bool {
-    if filter.is_empty() {
-        return true;
-    }
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|ext| filter.iter().any(|f| f == ext))
 }
 
 // When watcher_event changes:
@@ -252,22 +243,6 @@ mod tests {
         assert!(event_kind_check(&EventKind::Remove(RemoveKind::File)));
         assert!(!event_kind_check(&EventKind::Any));
         assert!(!event_kind_check(&EventKind::Other));
-    }
-
-    #[test]
-    fn file_extension_check_empty_filter_watches_all() {
-        let filter: Vec<String> = vec![];
-        assert!(file_extension_check(Path::new("a.txt"), &filter));
-        assert!(file_extension_check(Path::new("a.toml"), &filter));
-        assert!(file_extension_check(Path::new("noext"), &filter));
-    }
-
-    #[test]
-    fn file_extension_check_non_empty_filter_restricts() {
-        let filter = vec!["html".to_string(), "toml".to_string()];
-        assert!(file_extension_check(Path::new("a.html"), &filter));
-        assert!(file_extension_check(Path::new("a.toml"), &filter));
-        assert!(!file_extension_check(Path::new("a.txt"), &filter));
     }
 
     #[test]

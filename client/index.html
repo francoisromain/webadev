@@ -42,7 +42,7 @@
       <li>Serve a static folder</li>
       <li>Live reload in the browser on file change, debounced by 200ms</li>
       <li>CSS hot-reload (no full page reload)</li>
-      <li>filter watched files by type</li>
+      <li>Filter watched files by name or suffix</li>
       <li>Smart script injection (no manual setup needed)</li>
       <li>Auto-reconnect (reloads the page when the server restarts, requires a --port)</li>
       <li>Custom IP/port support</li>
@@ -78,7 +78,12 @@ webadev</code></pre>
         (default: false)
       </li>
       <li>
-        <code>--filter</code> / <code>-f</code>: filter watched files by type (default: all; e.g. <code>--filter html,css,jsx,js,ts,tsx</code>)
+        <code>--filter</code> / <code>-f</code> <code>&lt;suffixes&gt;</code>:
+        comma-separated file name suffixes to watch (default: all; e.g.
+        <code>--filter html,css</code> or <code>--filter one-file.html</code>). An
+        item matches when the file name equals <code>&lt;item&gt;</code> or ends
+        with <code>.&lt;item&gt;</code>. Items are lowercased, a leading dot or
+        path separator is rejected, and empty items are ignored.
       </li>
       <li>
         <code>--header</code>: additional HTTP header on every response
@@ -96,6 +101,9 @@ webadev</code></pre>
     </ul>
 
     <h3 id="examples">Examples</h3>
+    <p>Filter watched files by suffix or exact name.</p>
+    <pre><code>webadev --filter html,css
+webadev --filter one-file.html</code></pre>
     <p>Use with an external API (CORS).</p>
     <pre><code>webadev --header "Access-Control-Allow-Origin: http://localhost:5173"</code></pre>
     <p>
@@ -171,8 +179,17 @@ server.run().await?;</code></pre>
       </li>
       <li><code>Vec&lt;PathBuf&gt;</code>: the modified file paths.</li>
     </ul>
-    <p>Watch specific file types:</p>
-    <pre><code>watch(tx.clone(), &amp;dir, &amp;["html","css","jsx","js","ts","tsx"])?;</code></pre>
+    <p>Watch specific file suffixes or names:</p>
+    <pre><code>watch(tx.clone(), &amp;dir, &amp;["html","css","one-file.html"])?;</code></pre>
+    <p>
+      The filter is normalized by <code>watch</code>: items are trimmed and
+      lowercased, a leading dot or path separator is rejected, and empty items
+      are ignored. An item matches when the file name equals
+      <code>&lt;item&gt;</code> or ends with <code>.&lt;item&gt;</code>, so
+      <code>html</code> matches <code>index.html</code> and
+      <code>one-file.html</code> matches that file. An empty filter
+      (<code>&amp;[]</code>) watches every file.
+    </p>
 
     <h3 id="advanced">3. Advanced: compose with your own axum router</h3>
     <p>Use the low-level <code>bind</code> and <code>serve</code>:</p>
@@ -225,7 +242,7 @@ assert!(base_normalize("/app/../x").is_err());</code></pre>
       </li>
     </ul>
     <pre><code># watcher only, no HTTP server
-webadev = { version = "0.9", default-features = false }</code></pre>
+webadev = { version = "0.12", default-features = false }</code></pre>
 
     <h2 id="local-installation">Local installation</h2>
 

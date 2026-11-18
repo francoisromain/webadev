@@ -11,36 +11,48 @@ use webadev::{Config, ReloadType, Server, watch};
 #[command(about = "A web dev server with live reload", version)]
 struct Args {
     /// Directory to serve and watch
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long, default_value = ".", value_name = "DIR")]
     dir: PathBuf,
 
-    /// Port to listen on
-    #[arg(short, long, default_value = "0")]
+    /// Port to listen on (0 = random free port)
+    #[arg(
+        short,
+        long,
+        default_value = "0",
+        hide_default_value = true,
+        value_name = "PORT"
+    )]
     port: u16,
 
     /// IP address to bind to
-    #[arg(short, long, default_value = "127.0.0.1")]
+    #[arg(short, long, default_value = "127.0.0.1", value_name = "IP")]
     ip: IpAddr,
 
     /// Open the page in the browser on start
     #[arg(short, long)]
     open: bool,
 
-    /// Additional HTTP header to send with every response, e.g. `--header "Access-Control-Allow-Origin: *"`
-    #[arg(long)]
+    /// Additional HTTP header to send with every response (repeatable)
+    #[arg(long, value_name = "NAME: VALUE")]
     header: Vec<String>,
 
     /// Default file served for directory requests
-    #[arg(long, default_value = "index.html")]
+    #[arg(long, default_value = "index.html", value_name = "FILE")]
     index: String,
 
     /// URL path prefix to serve under, must start with `/`, e.g. `--base /app` (default: none)
-    #[arg(long, default_value = "", hide_default_value = true)]
+    #[arg(
+        long,
+        default_value = "",
+        hide_default_value = true,
+        value_name = "PREFIX"
+    )]
     base: String,
 
-    /// File extensions to watch (comma-separated). Unset => watch all
-    #[arg(long, short)]
-    filter: Option<String>,
+    /// File name suffixes to watch, comma-separated, e.g. `html` or `one-file.html`
+    /// (default: all)
+    #[arg(long, short, value_name = "SUFFIXES")]
+    filter: Vec<String>,
 }
 
 #[tokio::main]
@@ -49,18 +61,9 @@ async fn main() {
 
     // Rx keep a receiver alive so tx.send doesn't error
     let (tx, mut rx) = broadcast::channel(100);
-    let filter_vec: Vec<String> = match &args.filter {
-        None => vec![],
-        Some(s) => s
-            .split(',')
-            .map(|p| p.trim())
-            .filter(|p| !p.is_empty())
-            .map(|p| p.to_string())
-            .collect(),
-    };
-    let filter_refs: Vec<&str> = filter_vec.iter().map(|s| s.as_str()).collect();
-    if let Err(err) = watch(tx.clone(), &args.dir, &filter_refs) {
-        eprintln!("Failed to watch {}: {err}", args.dir.display());
+    let filter: Vec<&str> = args.filter.iter().map(String::as_str).collect();
+    if let Err(err) = watch(tx.clone(), &args.dir, &filter) {
+        eprintln!("Failed to start watcher: {err}");
         std::process::exit(1);
     }
 
@@ -107,5 +110,47 @@ fn file_paths_print(paths: &[PathBuf], reload_type: ReloadType) {
     for path in paths {
         let rel = path.strip_prefix(&cwd).unwrap_or(path);
         println!("Change detected: {} — {message}", rel.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::*;
+
+    #[test]
+    fn default_filter_watches_all() {
+        let args = Args::try_parse_from(["webadev"]).unwrap();
+        assert!(args.filter.is_empty());
+    }
+
+    #[test]
+    fn filter_is_collected_raw() {
+        // clap only collects; `watch` trims, lowercases, splits, and validates
+        let args = Args::try_parse_from(["webadev", "-f", " HTML ,CSS "]).unwrap();
+        assert_eq!(args.filter, [" HTML ,CSS "]);
+
+        let args = Args::try_parse_from(["webadev", "-f", "html,css", "-f", "js"]).unwrap();
+        assert_eq!(args.filter, ["html,css", "js"]);
+
+        let args = Args::try_parse_from(["webadev", "-f", ""]).unwrap();
+        assert_eq!(args.filter, [""]);
+    }
+
+    #[test]
+    fn help_documents_value_names() {
+        let help = Args::command().render_help().to_string();
+        for expected in [
+            "--dir <DIR>",
+            "--port <PORT>",
+            "--ip <IP>",
+            "--header <NAME: VALUE>",
+            "--index <FILE>",
+            "--base <PREFIX>",
+            "--filter <SUFFIXES>",
+        ] {
+            assert!(help.contains(expected), "missing `{expected}` in:\n{help}");
+        }
     }
 }

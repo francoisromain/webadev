@@ -15,7 +15,7 @@ A web dev server with live reload, written in Rust.
 - Serve a static folder
 - Live reload in the browser on file change, debounced by 200ms
 - CSS hot-reload (no full page reload)
-- filter watched files by type
+- Filter watched files by name or suffix
 - Smart script injection (no manual setup needed)
 - Auto-reconnect (reloads the page when the server restarts, requires a --port)
 - Custom IP/port support
@@ -41,17 +41,18 @@ webadev
 - `--port` / `-p`: port to run on (default: random free port)
 - `--ip` / `-i`: IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--open` / `-o`: open the page in the browser on start (default: false)
-- `--filter` / `-f`: filter watched files by type (default: all; e.g.: `--filter html,css,jsx,js,ts,tsx`)
+- `--filter` / `-f` `<suffixes>`: comma-separated file name suffixes to watch (default: all; e.g. `--filter html,css` or `--filter one-file.html`). An item matches when the file name equals `<item>` or ends with `.<item>`. Items are lowercased, a leading dot or path separator is rejected, and empty items are ignored.
 - `--header`: additional HTTP header on every response (repeatable; e.g. `--header "Access-Control-Allow-Origin: *"`)
 - `--index`: default file for directory requests (default: `index.html`)
 - `--base`: URL path prefix, must start with `/` (default: root; e.g. `--base /app`). Pages must reference assets relatively (./style.css) or include the prefix (/app/style.css).
 
 ### Examples
 
-Filter specific file types. 
+Filter watched files by suffix or exact name.
 
-```bash 
+```bash
 webadev --filter html,css,jsx,js,ts,tsx
+webadev --filter one-file.html
 ```
 
 Use with an external API (CORS).
@@ -135,11 +136,13 @@ The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<
 - `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload),
 - `Vec<PathBuf>`: the modified file paths.
 
-Watch specific file types: 
+Watch specific file suffixes or names: 
 
 ```rust 
-watch(tx.clone(), &dir, &["html","css","jsx","js","ts","tsx"])?;
+watch(tx.clone(), &dir, &["html","css","one-file.html"])?;
 ```
+
+The filter is normalized by `watch`: items are trimmed and lowercased, a leading dot or path separator is rejected, and empty items are ignored. An item matches when the file name equals `<item>` or ends with `.<item>`, so `html` matches `index.html` and `one-file.html` matches that file. An empty filter (`&[]`) watches every file.
 
 ### 3. Advanced: compose with your own axum router
 
@@ -187,7 +190,7 @@ assert!(base_normalize("/app/../x").is_err());
 
 ```toml
 # watcher only, no HTTP server
-webadev = { version = "0.9", default-features = false }
+webadev = { version = "0.12", default-features = false }
 ```
 
 ## Local installation

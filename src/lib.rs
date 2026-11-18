@@ -14,6 +14,7 @@
 // Be strict with our own docs: every public item should be documented
 #![warn(missing_docs)]
 
+mod filter;
 mod helpers;
 #[cfg(feature = "serve")]
 mod server;

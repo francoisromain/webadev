@@ -272,6 +272,133 @@ async fn unrelated_extension_triggers_reload() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn filter_ignores_unlisted_extensions() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "html"]);
+    wait_ready(port).await;
+
+    let mut sse = sse_connect(port).await;
+
+    tokio::fs::write(dir.path().join("notes.txt"), "x")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_millis(700)).await;
+    assert_eq!(
+        count, 0,
+        "notes.txt must be ignored by `--filter html`, got {count} reloads"
+    );
+
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert_eq!(
+        count, 1,
+        "expected 1 reload for index.html, got {count}; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn filter_matches_case_insensitively() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "TXT"]);
+    wait_ready(port).await;
+
+    let mut sse = sse_connect(port).await;
+
+    tokio::fs::write(dir.path().join("notes.txt"), "x")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert!(
+        count >= 1,
+        "`--filter TXT` must match notes.txt, got {count}; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_filter_watches_everything() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", ""]);
+    wait_ready(port).await;
+
+    let mut sse = sse_connect(port).await;
+
+    tokio::fs::write(dir.path().join("notes.txt"), "x")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert!(
+        count >= 1,
+        "`--filter \"\"` must watch every file, got {count}; server stderr:\n{stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn filter_matches_exact_file_name() {
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+        .await
+        .unwrap();
+    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "notes.txt"]);
+    wait_ready(port).await;
+
+    let mut sse = sse_connect(port).await;
+
+    tokio::fs::write(dir.path().join("other.txt"), "x")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_millis(700)).await;
+    assert_eq!(
+        count, 0,
+        "other.txt must be ignored by `--filter notes.txt`, got {count} reloads"
+    );
+
+    tokio::fs::write(dir.path().join("notes.txt"), "x")
+        .await
+        .unwrap();
+    let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
+    let stderr = reap(&mut server);
+    drop(dir);
+    assert!(
+        count >= 1,
+        "`--filter notes.txt` must match notes.txt, got {count}; server stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn invalid_filter_is_rejected_at_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_webadev"))
+        .args(["--dir", dir.path().to_str().unwrap(), "--filter", ".html"])
+        .output()
+        .expect("failed to spawn webadev");
+
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Failed to start watcher"), "got: {stderr}");
+    assert!(
+        stderr.contains("must not start with a dot"),
+        "got: {stderr}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn css_write_produces_css_event() {
     let (dir, port, mut server) = start_dir().await;
     let mut sse = sse_connect(port).await;
