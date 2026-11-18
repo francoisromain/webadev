@@ -88,7 +88,7 @@ impl Server {
     ///     std::fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
     ///
     ///     let (tx, _rx) = broadcast::channel(100); // Keep a receiver alive so watch() can send
-    ///     watch(tx.clone(), dir.path()).unwrap();
+    ///     watch(tx.clone(), dir.path(), &[]).unwrap();
     ///
     ///     let config = Config {
     ///         dir: dir.path().to_path_buf(),

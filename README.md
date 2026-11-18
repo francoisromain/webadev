@@ -12,9 +12,10 @@ A web dev server with live reload, written in Rust.
 
 ## Features
 
-- Serve a static folder with HTML, CSS, JS
+- Serve a static folder
 - Live reload in the browser on file change, debounced by 200ms
 - CSS hot-reload (no full page reload)
+- filter watched files by type
 - Smart script injection (no manual setup needed)
 - Auto-reconnect (reloads the page when the server restarts, requires a --port)
 - Custom IP/port support
@@ -40,11 +41,18 @@ webadev
 - `--port` / `-p`: port to run on (default: random free port)
 - `--ip` / `-i`: IP address to bind to (default: 127.0.0.1, use `0.0.0.0` to access from other devices)
 - `--open` / `-o`: open the page in the browser on start (default: false)
+- `--filter` / `-f`: filter watched files by type (default: all; e.g.: `--filter html,css,jsx,js,ts,tsx`)
 - `--header`: additional HTTP header on every response (repeatable; e.g. `--header "Access-Control-Allow-Origin: *"`)
 - `--index`: default file for directory requests (default: `index.html`)
 - `--base`: URL path prefix, must start with `/` (default: root; e.g. `--base /app`). Pages must reference assets relatively (./style.css) or include the prefix (/app/style.css).
 
 ### Examples
+
+Filter specific file types. 
+
+```bash 
+webadev --filter html,css,jsx,js,ts,tsx
+```
 
 Use with an external API (CORS).
 
@@ -108,7 +116,7 @@ use webadev::{Config, Server, watch};
 
 let dir: PathBuf = ".".into();           // directory to watch and serve
 let (tx, _rx) = broadcast::channel(100); // keep a receiver alive so watch() can send
-watch(tx.clone(), &dir)?;
+watch(tx.clone(), &dir, &[])?;
 
 let config = Config {
     dir,                                  // same directory (moved in)
@@ -127,6 +135,12 @@ The `broadcast` channel notifies subscribers of reload events `(ReloadType, Vec<
 - `ReloadType::Css` (CSS-only) or `ReloadType::Page` (full reload),
 - `Vec<PathBuf>`: the modified file paths.
 
+Watch specific file types: 
+
+```rust 
+watch(tx.clone(), &dir, &["html","css","jsx","js","ts","tsx"])?;
+```
+
 ### 3. Advanced: compose with your own axum router
 
 Use the low-level `bind` and `serve`:
@@ -134,10 +148,12 @@ Use the low-level `bind` and `serve`:
 ```rust
 use std::path::PathBuf;
 use tokio::sync::broadcast;
-use webadev::{Config, bind, serve};
+use webadev::{Config, bind, serve, watch};
 
-let (tx, _rx) = broadcast::channel(100);
 let dir: PathBuf = ".".into();
+let (tx, _rx) = broadcast::channel(100);
+watch(tx.clone(), &dir, &[])?;
+
 let config = Config {
     dir,
     ip: IpAddr::from([127, 0, 0, 1]),

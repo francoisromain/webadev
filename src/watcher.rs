@@ -1,8 +1,10 @@
 //! File watching: turns filesystem changes into reload events.
 //!
-//! Watches a directory recursively, keeps only web files
-//! (`html`, `css`, `js`, `jsx`, `ts`, `tsx`) and collapses bursts of changes
-//! Into one event every 200ms, sent on a `broadcast` channel.
+//! Watches a directory recursively,
+//! and collapses bursts of changes into one event every 200ms,
+//! sent on a `broadcast` channel.
+//! Filters by file extension when `filter` is non-empty.
+//! If `filter` is empty, all file types are watched.
 
 use std::{
     mem,
@@ -23,12 +25,12 @@ const DEBOUNCE_TIME: Duration = Duration::from_millis(200);
 // Events wake it instantly
 const IDLE_TIME: Duration = Duration::from_secs(3600);
 
-// File extensions that trigger a reload
-const WEB_EXTENSIONS: &[&str] = &["html", "css", "js", "jsx", "ts", "tsx"];
-
 /// Run a background thread and watch a directory.
 /// When files change:
 /// - Broadcast the reload type and the changed paths on `app_event_tx`
+///
+/// `filter` lists allowed file extensions (without dot), e.g. `&["html","css","toml"]`.
+/// If `filter` is empty, all file types are watched.
 ///
 /// # Examples
 ///
@@ -39,15 +41,17 @@ const WEB_EXTENSIONS: &[&str] = &["html", "css", "js", "jsx", "ts", "tsx"];
 ///
 /// let dir = tempdir().unwrap();
 /// let (tx, _rx) = broadcast::channel(100); // Keep a receiver alive so watch() can send
-/// watch(tx, dir.path()).unwrap();
+/// watch(tx, dir.path(), &[]).unwrap();
 /// ```
 pub fn watch(
     app_event_tx: broadcast::Sender<(ReloadType, Vec<PathBuf>)>,
     dir: impl AsRef<Path>,
+    filter: &[&str],
 ) -> Result<(), notify::Error> {
     let dir = dir.as_ref().to_path_buf();
     let (watcher_event_tx, watcher_event_rx) = mpsc::channel::<Result<Event, notify::Error>>();
-    let watcher = watcher_build(dir, watcher_event_tx)?;
+    let filter_owned: Vec<String> = filter.iter().map(|s| s.to_string()).collect();
+    let watcher = watcher_build(dir, watcher_event_tx, filter_owned)?;
 
     // Run in the background to avoid blocking the main thread
     // `_watcher` keeps the notify thread alive
@@ -64,12 +68,13 @@ pub fn watch(
 fn watcher_build(
     dir: PathBuf,
     watcher_event_tx: mpsc::Sender<Result<Event, notify::Error>>,
+    filter: Vec<String>,
 ) -> Result<RecommendedWatcher, notify::Error> {
     let mut watcher = RecommendedWatcher::new(
         move |filesystem_event: Result<Event, notify::Error>| {
             let option = match filesystem_event {
                 Err(error) => Some(Err(error)),
-                Ok(event) => event_filter(event).map(Ok),
+                Ok(event) => event_filter(event, &filter).map(Ok),
             };
 
             if let Some(event_or_error) = option {
@@ -86,14 +91,16 @@ fn watcher_build(
 
 // Keep the event only with:
 // - The correct event kind
-// - File paths with the correct extension
+// - File paths with the correct extension (or all if filter is empty)
 // - At least one path
-fn event_filter(mut event: Event) -> Option<Event> {
+fn event_filter(mut event: Event, filter: &[String]) -> Option<Event> {
     if !event_kind_check(&event.kind) {
         return None;
     }
 
-    event.paths.retain(|path| file_extension_check(path));
+    event
+        .paths
+        .retain(|path| file_extension_check(path, filter));
 
     if event.paths.is_empty() {
         return None;
@@ -109,10 +116,13 @@ fn event_kind_check(kind: &EventKind) -> bool {
     )
 }
 
-fn file_extension_check(path: &Path) -> bool {
+fn file_extension_check(path: &Path, filter: &[String]) -> bool {
+    if filter.is_empty() {
+        return true;
+    }
     path.extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|ext| WEB_EXTENSIONS.contains(&ext))
+        .is_some_and(|ext| filter.iter().any(|f| f == ext))
 }
 
 // When watcher_event changes:
@@ -245,14 +255,19 @@ mod tests {
     }
 
     #[test]
-    fn file_extension_check_only_web_files_are_true() {
-        for ext in WEB_EXTENSIONS {
-            assert!(file_extension_check(Path::new(&format!("a.{ext}"))));
-        }
-        assert!(!file_extension_check(Path::new("a.txt")));
-        assert!(!file_extension_check(Path::new("a.log")));
-        assert!(!file_extension_check(Path::new("index")));
-        assert!(!file_extension_check(Path::new(".hidden")));
+    fn file_extension_check_empty_filter_watches_all() {
+        let filter: Vec<String> = vec![];
+        assert!(file_extension_check(Path::new("a.txt"), &filter));
+        assert!(file_extension_check(Path::new("a.toml"), &filter));
+        assert!(file_extension_check(Path::new("noext"), &filter));
+    }
+
+    #[test]
+    fn file_extension_check_non_empty_filter_restricts() {
+        let filter = vec!["html".to_string(), "toml".to_string()];
+        assert!(file_extension_check(Path::new("a.html"), &filter));
+        assert!(file_extension_check(Path::new("a.toml"), &filter));
+        assert!(!file_extension_check(Path::new("a.txt"), &filter));
     }
 
     #[test]
@@ -285,33 +300,45 @@ mod tests {
     }
 
     #[test]
-    fn event_filter_trims_unworthy_paths() {
-        let filtered = event_filter(event(EventKind::Create(CreateKind::File), &["a.js"])).unwrap();
+    fn event_filter_trims_unworthy_paths_with_filter() {
+        let filter = vec!["js".to_string()];
+        let filtered = event_filter(
+            event(EventKind::Create(CreateKind::File), &["a.js"]),
+            &filter,
+        )
+        .unwrap();
         assert_eq!(filtered.paths, vec![PathBuf::from("a.js")]);
 
-        let filtered = event_filter(event(
-            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
-            &["a.js", "a.log"],
-        ))
+        let filtered = event_filter(
+            event(
+                EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                &["a.js", "a.log"],
+            ),
+            &filter,
+        )
         .unwrap();
         assert_eq!(filtered.paths, vec![PathBuf::from("a.js")]);
     }
 
     #[test]
-    fn event_filter_rejects_non_content_and_empty() {
-        assert!(
-            event_filter(event(
-                EventKind::Access(AccessKind::Open(AccessMode::Any)),
-                &["a.js"]
-            ))
-            .is_none()
-        );
-        assert!(
-            event_filter(event(
-                EventKind::Modify(ModifyKind::Data(DataChange::Any)),
-                &["a.txt"],
-            ))
-            .is_none()
-        );
+    fn event_filter_custom_filter_allows_toml() {
+        let filter = vec!["html".to_string(), "toml".to_string()];
+        let filtered = event_filter(
+            event(EventKind::Create(CreateKind::File), &["a.toml"]),
+            &filter,
+        )
+        .unwrap();
+        assert_eq!(filtered.paths, vec![PathBuf::from("a.toml")]);
+    }
+
+    #[test]
+    fn event_filter_empty_filter_allows_all() {
+        let filter: Vec<String> = vec![];
+        let filtered = event_filter(
+            event(EventKind::Create(CreateKind::File), &["a.md"]),
+            &filter,
+        )
+        .unwrap();
+        assert_eq!(filtered.paths, vec![PathBuf::from("a.md")]);
     }
 }

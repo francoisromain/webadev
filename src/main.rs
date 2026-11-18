@@ -37,6 +37,10 @@ struct Args {
     /// URL path prefix to serve under, must start with `/`, e.g. `--base /app` (default: none)
     #[arg(long, default_value = "", hide_default_value = true)]
     base: String,
+
+    /// File extensions to watch (comma-separated). Unset => watch all
+    #[arg(long, short)]
+    filter: Option<String>,
 }
 
 #[tokio::main]
@@ -45,7 +49,17 @@ async fn main() {
 
     // Rx keep a receiver alive so tx.send doesn't error
     let (tx, mut rx) = broadcast::channel(100);
-    if let Err(err) = watch(tx.clone(), &args.dir) {
+    let filter_vec: Vec<String> = match &args.filter {
+        None => vec![],
+        Some(s) => s
+            .split(',')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string())
+            .collect(),
+    };
+    let filter_refs: Vec<&str> = filter_vec.iter().map(|s| s.as_str()).collect();
+    if let Err(err) = watch(tx.clone(), &args.dir, &filter_refs) {
         eprintln!("Failed to watch {}: {err}", args.dir.display());
         std::process::exit(1);
     }
