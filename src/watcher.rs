@@ -181,9 +181,14 @@ impl Changes {
     // Add paths to the queue
     // Restart the debounce time when a path is added
     fn enqueue(&mut self, paths: &[PathBuf]) {
-        let new_paths = paths_filter(&self.paths, paths);
-        if !new_paths.is_empty() {
-            self.paths.extend(new_paths);
+        let mut added = false;
+        for path in paths {
+            if !self.paths.contains(path) {
+                self.paths.push(path.clone());
+                added = true;
+            }
+        }
+        if added {
             self.time = Some(Instant::now());
         }
     }
@@ -208,15 +213,6 @@ impl Changes {
         self.time = None;
         Some(mem::take(&mut self.paths))
     }
-}
-
-// Filter out the paths already in the queue
-fn paths_filter(paths: &[PathBuf], event_paths: &[PathBuf]) -> Vec<PathBuf> {
-    event_paths
-        .iter()
-        .filter(|p| !paths.contains(p))
-        .cloned()
-        .collect()
 }
 
 #[cfg(test)]

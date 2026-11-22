@@ -9,30 +9,6 @@ use std::{
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
-fn spawn_server(dir: &Path, port: u16) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_webadev"))
-        .args([
-            "--dir",
-            dir.to_str().unwrap(),
-            "--port",
-            &port.to_string(),
-            "--ip",
-            "127.0.0.1",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn webadev")
-}
-
 async fn http_get(port: u16, path: &str) -> Option<(u16, Vec<u8>)> {
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
@@ -92,11 +68,10 @@ async fn sse_connect_at(port: u16, path: &str) -> tokio::net::TcpStream {
     stream
 }
 
-async fn collect_reloads(stream: &mut tokio::net::TcpStream, window: Duration) -> (usize, bool) {
+// Keep one buffer across reads so an SSE event split between two reads is not lost.
+async fn collect_sse(stream: &mut tokio::net::TcpStream, window: Duration) -> String {
     let deadline = Instant::now() + window;
-    let mut count = 0;
-    let mut has_data = false;
-    let mut buf = Vec::new();
+    let mut text = String::new();
     let mut tmp = [0u8; 4096];
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -105,48 +80,83 @@ async fn collect_reloads(stream: &mut tokio::net::TcpStream, window: Duration) -
         }
         match tokio::time::timeout(remaining, stream.read(&mut tmp)).await {
             Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
-            Ok(Ok(n)) => {
-                buf.extend_from_slice(&tmp[..n]);
-                let text = String::from_utf8_lossy(&buf);
-                count += text.matches("event: page").count();
-                has_data |= text.contains("data: page");
-                buf.clear();
-            }
+            Ok(Ok(n)) => text.push_str(&String::from_utf8_lossy(&tmp[..n])),
         }
     }
-    (count, has_data)
+    text
 }
 
-fn reap(child: &mut Child) -> String {
-    let _ = child.kill();
-    let _ = child.wait();
-    let mut out = String::new();
-    if let Some(mut err) = child.stderr.take() {
-        let _ = err.read_to_string(&mut out);
-    }
-    if let Some(mut stdout) = child.stdout.take() {
-        let _ = stdout.read_to_string(&mut out);
-    }
-    out
+async fn collect_reloads(stream: &mut tokio::net::TcpStream, window: Duration) -> (usize, bool) {
+    let text = collect_sse(stream, window).await;
+    (
+        text.matches("event: page").count(),
+        text.contains("data: page"),
+    )
 }
 
-/// Spawn the binary with `extra_args`, read stdout until it prints its URL,
-/// and return the child plus the resolved port.
+// Owns the child and its docroot: the server is killed and the files removed
+// even when a test panics. `stop` additionally returns the captured output.
+struct TestServer {
+    child: Option<Child>,
+    dir: tempfile::TempDir,
+}
+
+impl TestServer {
+    fn path(&self) -> &Path {
+        self.dir.path()
+    }
+
+    fn stop(mut self) -> String {
+        self.kill_and_read()
+    }
+
+    fn kill_and_read(&mut self) -> String {
+        let Some(mut child) = self.child.take() else {
+            return String::new();
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+        let mut out = String::new();
+        if let Some(mut err) = child.stderr.take() {
+            let _ = err.read_to_string(&mut out);
+        }
+        if let Some(mut stdout) = child.stdout.take() {
+            let _ = stdout.read_to_string(&mut out);
+        }
+        out
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        let _ = self.kill_and_read();
+    }
+}
+
+/// Start the binary in a temporary docroot with an `index.html`, and return
+/// the guard plus the resolved port.
 #[allow(
     clippy::zombie_processes,
-    reason = "the caller keeps the server alive and reaps it with reap()"
+    reason = "the child is owned by TestServer and reaped on drop"
 )]
-fn spawn_server_read_url(dir: &Path, extra_args: &[&str]) -> (Child, u16) {
-    let mut server = Command::new(env!("CARGO_BIN_EXE_webadev"))
-        .args(["--dir", dir.to_str().unwrap()])
+fn start(extra_args: &[&str]) -> (TestServer, u16) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("index.html"), "<html>hi</html>").unwrap();
+
+    let child = Command::new(env!("CARGO_BIN_EXE_webadev"))
+        .args(["--dir", dir.path().to_str().unwrap()])
         .args(extra_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to spawn webadev");
+    let mut server = TestServer {
+        child: Some(child),
+        dir,
+    };
 
     let (tx_stdout, rx_stdout) = std::sync::mpsc::channel::<String>();
-    let mut stdout = server.stdout.take().unwrap();
+    let mut stdout = server.child.as_mut().unwrap().stdout.take().unwrap();
     std::thread::spawn(move || {
         let mut buf = [0u8; 512];
         loop {
@@ -178,39 +188,26 @@ fn spawn_server_read_url(dir: &Path, extra_args: &[&str]) -> (Child, u16) {
             })
             .and_then(|s| s.parse::<u16>().ok())
         {
-            break (server, port);
+            return (server, port);
         }
         if Instant::now() >= deadline {
-            let _ = server.kill();
-            let _ = server.wait();
             panic!("server never printed its URL; stdout: {out}");
         }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
 
-async fn start_dir() -> (tempfile::TempDir, u16, Child) {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-    let port = free_port();
-    let server = spawn_server(dir.path(), port);
-    wait_ready(port).await;
-    (dir, port, server)
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn reads_produce_no_reload() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
     for _ in 0..3 {
         http_get(port, "/").await;
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let (count, _) = collect_reloads(&mut sse, Duration::from_millis(500)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 0,
         "reads triggered reloads; server stderr:\n{stderr}"
@@ -219,14 +216,14 @@ async fn reads_produce_no_reload() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn write_produces_exactly_one_reload() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+    tokio::fs::write(server.path().join("index.html"), "<html>hi2</html>")
         .await
         .unwrap();
     let (count, has_data) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 1,
         "expected 1 reload, got {count}; server stderr:\n{stderr}"
@@ -239,16 +236,16 @@ async fn write_produces_exactly_one_reload() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn burst_produces_exactly_one_reload() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
     for name in ["a.html", "b.html", "c.html"] {
-        tokio::fs::write(dir.path().join(name), format!("<html>{name}</html>"))
+        tokio::fs::write(server.path().join(name), format!("<html>{name}</html>"))
             .await
             .unwrap();
     }
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 1,
         "expected 1 reload, got {count}; server stderr:\n{stderr}"
@@ -257,14 +254,14 @@ async fn burst_produces_exactly_one_reload() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn unrelated_extension_triggers_reload() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
-    tokio::fs::write(dir.path().join("notes.txt"), "x")
+    tokio::fs::write(server.path().join("notes.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_millis(700)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(
         count >= 1,
         "expected at least 1 reload for notes.txt, got {count}; server stderr:\n{stderr}"
@@ -273,16 +270,11 @@ async fn unrelated_extension_triggers_reload() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn filter_ignores_unlisted_extensions() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "html"]);
+    let (server, port) = start(&["--filter", "html"]);
     wait_ready(port).await;
-
     let mut sse = sse_connect(port).await;
 
-    tokio::fs::write(dir.path().join("notes.txt"), "x")
+    tokio::fs::write(server.path().join("notes.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_millis(700)).await;
@@ -291,12 +283,11 @@ async fn filter_ignores_unlisted_extensions() {
         "notes.txt must be ignored by `--filter html`, got {count} reloads"
     );
 
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+    tokio::fs::write(server.path().join("index.html"), "<html>hi2</html>")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 1,
         "expected 1 reload for index.html, got {count}; server stderr:\n{stderr}"
@@ -305,21 +296,14 @@ async fn filter_ignores_unlisted_extensions() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn filter_matches_case_insensitively() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "TXT"]);
+    let (server, port) = start(&["--filter", "TXT"]);
     wait_ready(port).await;
-
     let mut sse = sse_connect(port).await;
-
-    tokio::fs::write(dir.path().join("notes.txt"), "x")
+    tokio::fs::write(server.path().join("notes.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(
         count >= 1,
         "`--filter TXT` must match notes.txt, got {count}; server stderr:\n{stderr}"
@@ -328,21 +312,14 @@ async fn filter_matches_case_insensitively() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn empty_filter_watches_everything() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", ""]);
+    let (server, port) = start(&["--filter", ""]);
     wait_ready(port).await;
-
     let mut sse = sse_connect(port).await;
-
-    tokio::fs::write(dir.path().join("notes.txt"), "x")
+    tokio::fs::write(server.path().join("notes.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(
         count >= 1,
         "`--filter \"\"` must watch every file, got {count}; server stderr:\n{stderr}"
@@ -351,16 +328,11 @@ async fn empty_filter_watches_everything() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn filter_matches_exact_file_name() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--filter", "notes.txt"]);
+    let (server, port) = start(&["--filter", "notes.txt"]);
     wait_ready(port).await;
-
     let mut sse = sse_connect(port).await;
 
-    tokio::fs::write(dir.path().join("other.txt"), "x")
+    tokio::fs::write(server.path().join("other.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_millis(700)).await;
@@ -369,12 +341,11 @@ async fn filter_matches_exact_file_name() {
         "other.txt must be ignored by `--filter notes.txt`, got {count} reloads"
     );
 
-    tokio::fs::write(dir.path().join("notes.txt"), "x")
+    tokio::fs::write(server.path().join("notes.txt"), "x")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(
         count >= 1,
         "`--filter notes.txt` must match notes.txt, got {count}; server stderr:\n{stderr}"
@@ -400,54 +371,37 @@ fn invalid_filter_is_rejected_at_runtime() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn css_write_produces_css_event() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
-    tokio::fs::write(dir.path().join("style.css"), "body {}")
+    tokio::fs::write(server.path().join("style.css"), "body {}")
         .await
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut found_css = false;
-    let mut found_page = false;
-    let mut tmp = [0u8; 4096];
-    while Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        match tokio::time::timeout(remaining, sse.read(&mut tmp)).await {
-            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
-            Ok(Ok(n)) => {
-                let text = String::from_utf8_lossy(&tmp[..n]);
-                found_css |= text.contains("event: css");
-                found_page |= text.contains("event: page");
-            }
-        }
-    }
-    let stderr = reap(&mut server);
-    drop(dir);
+    let text = collect_sse(&mut sse, Duration::from_secs(2)).await;
+    let stderr = server.stop();
     assert!(
-        found_css,
+        text.contains("event: css"),
         "CSS change did not produce event:css; server stderr:\n{stderr}"
     );
     assert!(
-        !found_page,
+        !text.contains("event: page"),
         "CSS change produced event:page (should be event:css); server stderr:\n{stderr}"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn css_and_html_write_produce_full_reload() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let mut sse = sse_connect(port).await;
-    tokio::fs::write(dir.path().join("style.css"), "body {}")
+    tokio::fs::write(server.path().join("style.css"), "body {}")
         .await
         .unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+    tokio::fs::write(server.path().join("index.html"), "<html>hi2</html>")
         .await
         .unwrap();
     let (count, _) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 1,
         "expected 1 reload for mixed css+html, got {count}; server stderr:\n{stderr}"
@@ -456,12 +410,12 @@ async fn css_and_html_write_produce_full_reload() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn rooted_path_does_not_escape_docroot() {
-    let (dir, port, mut server) = start_dir().await;
+    let (server, port) = start(&[]);
+    wait_ready(port).await;
     let (status, _) = http_get(port, "//etc/passwd")
         .await
         .expect("http get failed");
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         status, 404,
         "rooted path served a file outside the docroot; server stderr:\n{stderr}"
@@ -470,15 +424,10 @@ async fn rooted_path_does_not_escape_docroot() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn serves_under_base_prefix() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
+    let (server, port) = start(&["--base", "/app"]);
+    tokio::fs::write(server.path().join("style.css"), "body {}")
         .await
         .unwrap();
-    tokio::fs::write(dir.path().join("style.css"), "body {}")
-        .await
-        .unwrap();
-
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--base", "/app"]);
     wait_ready_at(port, "/app/").await;
 
     let (status, body) = http_get(port, "/app/").await.expect("http get failed");
@@ -497,13 +446,12 @@ async fn serves_under_base_prefix() {
     assert_eq!(status, 308);
 
     let mut sse = sse_connect_at(port, "/app/livereload").await;
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi2</html>")
+    tokio::fs::write(server.path().join("index.html"), "<html>hi2</html>")
         .await
         .unwrap();
     let (count, has_data) = collect_reloads(&mut sse, Duration::from_secs(2)).await;
 
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert_eq!(
         count, 1,
         "expected 1 reload, got {count}; server stderr:\n{stderr}"
@@ -516,33 +464,20 @@ async fn serves_under_base_prefix() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn port_zero_prints_real_port_and_injects_it() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-
-    let (mut server, port) = spawn_server_read_url(dir.path(), &["--port", "0"]);
-
+    let (server, port) = start(&["--port", "0"]);
     wait_ready(port).await;
     let (_, body) = http_get(port, "/").await.expect("http get failed");
     let html = String::from_utf8_lossy(&body);
     assert!(html.contains("EventSource"));
     assert!(html.contains("/livereload"));
 
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(stderr.is_empty(), "server stderr:\n{stderr}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn default_port_is_random_and_reachable() {
-    let dir = tempfile::tempdir().unwrap();
-    tokio::fs::write(dir.path().join("index.html"), "<html>hi</html>")
-        .await
-        .unwrap();
-
-    // No --port: the default (0) must be resolved to a real free port.
-    let (mut server, port) = spawn_server_read_url(dir.path(), &[]);
+    let (server, port) = start(&[]);
     assert_ne!(port, 0, "server must report the resolved port, not 0");
 
     wait_ready(port).await;
@@ -552,7 +487,6 @@ async fn default_port_is_random_and_reachable() {
     assert!(html.contains("EventSource"));
     assert!(html.contains("/livereload"));
 
-    let stderr = reap(&mut server);
-    drop(dir);
+    let stderr = server.stop();
     assert!(stderr.is_empty(), "server stderr:\n{stderr}");
 }

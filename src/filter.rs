@@ -49,9 +49,12 @@ pub(crate) fn matches(path: &Path, filter: &[String]) -> bool {
         return false;
     };
     let name = name.to_ascii_lowercase();
-    filter
-        .iter()
-        .any(|item| name == item.as_str() || name.ends_with(&format!(".{item}")))
+    filter.iter().any(|item| {
+        name == item.as_str()
+            || name
+                .strip_suffix(item)
+                .is_some_and(|prefix| prefix.ends_with('.'))
+    })
 }
 
 #[cfg(test)]

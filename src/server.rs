@@ -433,28 +433,27 @@ async fn file_serve(dir: &Path, path: &str, index: &str, base: &str) -> Response
         }
     } else {
         let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
-        Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime.as_ref())
-            .header(header::CACHE_CONTROL, "no-cache")
-            .body(Body::from(bytes))
-            .expect("failed to build response")
+        file_response_build(mime.as_ref(), bytes)
     }
 }
 
 fn html_response_build(body: impl Into<Bytes>) -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .header(header::CACHE_CONTROL, "no-cache")
-        .body(Body::from(body.into()))
-        .expect("failed to build response")
+    file_response_build("text/html; charset=utf-8", body.into())
 }
 
 fn html_not_found_build() -> Response {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::empty())
+        .expect("failed to build response")
+}
+
+fn file_response_build(content_type: &str, body: impl Into<Body>) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(body.into())
         .expect("failed to build response")
 }
 
@@ -485,13 +484,12 @@ fn js_script_inject(html: &str, base: &str) -> String {
     </script>"#;
     let script = script.replace("__BASE__", base);
 
-    if html.contains("</body>") {
-        html.replace("</body>", &format!("{}\n</body>", script))
-    } else if html.contains("</html>") {
-        html.replace("</html>", &format!("{}\n</html>", script))
-    } else {
-        format!("{}\n{}", html, script)
+    for tag in ["</body>", "</html>"] {
+        if let Some(pos) = html.find(tag) {
+            return format!("{}{script}\n{}", &html[..pos], &html[pos..]);
+        }
     }
+    format!("{html}\n{script}")
 }
 
 #[cfg(test)]
@@ -514,15 +512,11 @@ mod tests {
     }
 
     fn test_app_with_index(dir: &Path, index: &str) -> Router {
-        test_app_with_headers_and_index(dir, &[], index)
+        test_app_full(dir, &[], index, "")
     }
 
     fn test_app_with_headers(dir: &Path, headers: &[&str]) -> Router {
-        test_app_with_headers_and_index(dir, headers, "index.html")
-    }
-
-    fn test_app_with_headers_and_index(dir: &Path, headers: &[&str], index: &str) -> Router {
-        test_app_full(dir, headers, index, "")
+        test_app_full(dir, headers, "index.html", "")
     }
 
     fn test_app_with_base(dir: &Path, base: &str) -> Router {
@@ -541,12 +535,15 @@ mod tests {
         })
     }
 
-    async fn get(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
-        let resp = app
-            .clone()
+    async fn request(app: &Router, uri: &str) -> Response {
+        app.clone()
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    async fn get(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
+        let resp = request(app, uri).await;
         let status = resp.status();
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         (status, bytes.to_vec())
@@ -690,24 +687,11 @@ mod tests {
         html_write(dir.path(), "index.html", "<html>hi</html>");
         let app = test_app_with_base(dir.path(), "/app");
 
-        let resp = app
-            .clone()
-            .oneshot(Request::builder().uri("/app").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+        let resp = request(&app, "/app").await;
         assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(resp.headers()["location"], "/app/");
 
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/app?x=1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = request(&app, "/app?x=1").await;
         assert_eq!(resp.headers()["location"], "/app/?x=1");
     }
 
@@ -771,12 +755,7 @@ mod tests {
     }
 
     async fn headers_get(app: &Router, uri: &str) -> HeaderMap {
-        let resp = app
-            .clone()
-            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        resp.into_parts().0.headers
+        request(app, uri).await.into_parts().0.headers
     }
 
     #[tokio::test]

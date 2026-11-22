@@ -43,7 +43,7 @@ pub fn base_normalize(base: &str) -> Result<String, String> {
         return Err(format!("must start with `/` (got: `{base}`)"));
     }
 
-    let core = base.strip_prefix('/').unwrap_or(base);
+    let core = &base[1..];
     let core = core.strip_suffix('/').unwrap_or(core);
 
     for segment in core.split('/') {

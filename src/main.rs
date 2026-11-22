@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
@@ -63,8 +64,7 @@ async fn main() {
     let (tx, mut rx) = broadcast::channel(100);
     let filter: Vec<&str> = args.filter.iter().map(String::as_str).collect();
     if let Err(err) = watch(tx.clone(), &args.dir, &filter) {
-        eprintln!("Failed to start watcher: {err}");
-        std::process::exit(1);
+        fail(format!("Failed to start watcher: {err}"));
     }
 
     tokio::spawn(async move {
@@ -82,13 +82,9 @@ async fn main() {
         base: args.base,
     };
 
-    let server = match Server::bind(tx, config).await {
-        Ok(server) => server,
-        Err(err) => {
-            eprintln!("{err}");
-            std::process::exit(1);
-        }
-    };
+    let server = Server::bind(tx, config)
+        .await
+        .unwrap_or_else(|err| fail(err));
 
     println!("Starting development server at {}", server.url);
 
@@ -98,10 +94,12 @@ async fn main() {
         eprintln!("Failed to open browser: {err}");
     }
 
-    if let Err(err) = server.run().await {
-        eprintln!("{err}");
-        std::process::exit(1);
-    }
+    server.run().await.unwrap_or_else(|err| fail(err));
+}
+
+fn fail(msg: impl Display) -> ! {
+    eprintln!("{msg}");
+    std::process::exit(1)
 }
 
 fn file_paths_print(paths: &[PathBuf], reload_type: ReloadType) {
