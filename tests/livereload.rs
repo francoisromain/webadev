@@ -1,4 +1,4 @@
-#![cfg(feature = "serve")]
+#![cfg(all(feature = "serve", feature = "watch", feature = "cli"))]
 
 use std::{
     io::Read,

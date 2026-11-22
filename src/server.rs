@@ -80,15 +80,14 @@ impl Server {
     /// use std::net::IpAddr;
     /// use tempfile::tempdir;
     /// use tokio::sync::broadcast;
-    /// use webadev::{Config, Server, watch};
+    /// use webadev::{Config, Server};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let dir = tempdir().unwrap();
     ///     std::fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
     ///
-    ///     let (tx, _rx) = broadcast::channel(100); // Keep a receiver alive so watch() can send
-    ///     watch(tx.clone(), dir.path(), &[]).unwrap();
+    ///     let (tx, _rx) = broadcast::channel(100);
     ///
     ///     let config = Config {
     ///         dir: dir.path().to_path_buf(),
@@ -112,6 +111,9 @@ impl Server {
     ///     assert!(body.contains("hi"));
     /// }
     /// ```
+    ///
+    /// With the `watch` feature, pass the same sender to `watch` to drive
+    /// reloads from file changes.
     pub async fn bind(
         tx: Sender<(ReloadType, Vec<PathBuf>)>,
         config: Config,

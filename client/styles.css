@@ -102,6 +102,25 @@ pre code {
   line-height: 1.5;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.95rem;
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--code-bg);
+}
+
 a {
   color: var(--accent);
 }

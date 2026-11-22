@@ -1,6 +1,6 @@
 [package]
 name = "webadev"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 description = "A web dev server with live reload"
 license = "MIT"
@@ -13,31 +13,57 @@ categories = ["development-tools"]
 exclude = ["client/**", "sessions/**", "docs/**"]
 
 [features]
-default = ["serve"]
-serve = ["dep:axum", "dep:futures-util", "dep:mime_guess"]
+default = ["cli"]
+cli = [
+    "watch",
+    "serve",
+    "dep:clap",
+    "dep:open",
+    "tokio/macros",
+    "tokio/rt-multi-thread",
+]
+watch = ["dep:notify", "dep:tokio"]
+serve = [
+    "dep:axum",
+    "dep:futures-util",
+    "dep:mime_guess",
+    "dep:tokio",
+    "tokio/fs",
+    "tokio/net",
+]
 
 [[bin]]
 name = "webadev"
 path = "src/main.rs"
-required-features = ["serve"]
+required-features = ["cli"]
 
 [dependencies]
-axum = { version = "0.8", default-features = false, optional = true, features = [
+axum = { version = "0.8", optional = true, default-features = false, features = [
     "tokio",
     "http1",
 ] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", optional = true, features = ["derive"] }
 futures-util = { version = "0", optional = true }
 mime_guess = { version = "2", optional = true }
-notify = "8"
-open = "5"
-tokio = { version = "1", features = ["full"] }
+notify = { version = "9.0.0", optional = true }
+open = { version = "5", optional = true }
+tokio = { version = "1", optional = true, default-features = false, features = [
+    "sync",
+] }
 
 [dev-dependencies]
 http-body-util = "0"
 reqwest = "0.13"
 tempfile = "3"
 tower = { version = "0", features = ["util"] }
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+] }
 
 [package.metadata.docs.rs]
 all-features = true

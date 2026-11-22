@@ -185,12 +185,22 @@ assert!(base_normalize("/app/../x").is_err());
 
 ### Feature flags
 
-- `serve` (default): server (`Config`, `Server`, `bind`, `serve`), watcher (`watch`, `ReloadType`) and `base_normalize`.
-- `default-features = false`: watcher (`watch`, `ReloadType`) and `base_normalize`, without the server. Does not pull Axum as a dependency.
+| Feature | Default | Gates |
+| --- | --- | --- |
+| *(none)* | — | `ReloadType`, `base_normalize` — no external deps |
+| `watch` | via `cli` | `notify`, `watch` |
+| `serve` | via `cli` | `axum`, `futures-util`, `mime_guess`, `Config`, `Server`, `bind`, `serve` |
+| `cli` | yes | the `webadev` binary: `clap`, `open`; implies `watch` + `serve` |
+
+`watch` and `serve` are independent. `default-features = false` leaves only
+`ReloadType` and `base_normalize`.
 
 ```toml
-# watcher only, no HTTP server
-webadev = { version = "0.12", default-features = false }
+# watcher only, no HTTP server and no CLI deps
+webadev = { version = "0.13", default-features = false, features = ["watch"] }
+
+# server only, no watcher
+webadev = { version = "0.13", default-features = false, features = ["serve"] }
 ```
 
 ## Local installation

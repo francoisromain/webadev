@@ -2,11 +2,16 @@
 //! Usable as a CLI or as a library.
 //!
 //! Feature flags:
-//! - `serve` (default): server (`Config`, `Server`, `bind`, `serve`),
-//!   watcher ([`watch`], [`ReloadType`]) and [`base_normalize`].
-//! - `default-features = false`: watcher ([`watch`], [`ReloadType`])
-//!   and [`base_normalize`], without the server.
-//!   Does not pull Axum as a dependency.
+//!
+//! | Feature | Default | Provides |
+//! | --- | --- | --- |
+//! | *(none)* | — | `ReloadType`, `base_normalize` (no external deps) |
+//! | `watch` | via `cli` | `watch`, file watching via `notify` |
+//! | `serve` | via `cli` | `Config`, `Server`, `bind`, `serve` via Axum, `futures-util`, `mime_guess` |
+//! | `cli` | yes | the `webadev` binary (`clap`, `open`); implies `watch` + `serve` |
+//!
+//! `watch` and `serve` are independent. Library users should use
+//! `default-features = false` and pick only what they need.
 //!
 //! See the [README](https://crates.io/crates/webadev)
 //! for features, CLI, and library usage.
@@ -14,10 +19,12 @@
 // Be strict with our own docs: every public item should be documented
 #![warn(missing_docs)]
 
+#[cfg(feature = "watch")]
 mod filter;
 mod helpers;
 #[cfg(feature = "serve")]
 mod server;
+#[cfg(feature = "watch")]
 mod watcher;
 
 /// How to reload a browser tab on file change
@@ -49,4 +56,5 @@ impl ReloadType {
 pub use helpers::base_normalize;
 #[cfg(feature = "serve")]
 pub use server::{Config, Server, bind, serve};
+#[cfg(feature = "watch")]
 pub use watcher::watch;

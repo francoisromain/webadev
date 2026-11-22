@@ -228,21 +228,53 @@ assert!(base_normalize("app").is_err());      // must start with `/`
 assert!(base_normalize("/app/../x").is_err());</code></pre>
 
     <h3 id="feature-flags">Feature flags</h3>
-    <ul>
-      <li>
-        <code>serve</code> (default): server (<code>Config</code>,
-        <code>Server</code>, <code>bind</code>, <code>serve</code>), watcher
-        (<code>watch</code>, <code>ReloadType</code>) and
-        <code>base_normalize</code>.
-      </li>
-      <li>
-        <code>default-features = false</code>: watcher (<code>watch</code>,
-        <code>ReloadType</code>) and <code>base_normalize</code>, without the
-        server. Does not pull Axum as a dependency.
-      </li>
-    </ul>
-    <pre><code># watcher only, no HTTP server
-webadev = { version = "0.12", default-features = false }</code></pre>
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Default</th>
+          <th>Gates</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><em>(none)</em></td>
+          <td>—</td>
+          <td><code>ReloadType</code>, <code>base_normalize</code> — no external deps</td>
+        </tr>
+        <tr>
+          <td><code>watch</code></td>
+          <td>via <code>cli</code></td>
+          <td><code>notify</code>, <code>watch</code></td>
+        </tr>
+        <tr>
+          <td><code>serve</code></td>
+          <td>via <code>cli</code></td>
+          <td>
+            <code>axum</code>, <code>futures-util</code>, <code>mime_guess</code>,
+            <code>Config</code>, <code>Server</code>, <code>bind</code>, <code>serve</code>
+          </td>
+        </tr>
+        <tr>
+          <td><code>cli</code></td>
+          <td>yes</td>
+          <td>
+            the <code>webadev</code> binary: <code>clap</code>, <code>open</code>;
+            implies <code>watch</code> + <code>serve</code>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      <code>watch</code> and <code>serve</code> are independent.
+      <code>default-features = false</code> leaves only <code>ReloadType</code>
+      and <code>base_normalize</code>.
+    </p>
+    <pre><code># watcher only, no HTTP server and no CLI deps
+webadev = { version = "0.13", default-features = false, features = ["watch"] }
+
+# server only, no watcher
+webadev = { version = "0.13", default-features = false, features = ["serve"] }</code></pre>
 
     <h2 id="local-installation">Local installation</h2>
 
