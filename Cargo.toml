@@ -1,6 +1,6 @@
 [package]
 name = "webadev"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2024"
 description = "A web dev server with live reload"
 license = "MIT"
@@ -43,8 +43,8 @@ axum = { version = "0.8", optional = true, default-features = false, features = 
     "http1",
 ] }
 clap = { version = "4", optional = true, features = ["derive"] }
-futures-util = { version = "0", optional = true }
-mime_guess = { version = "2", optional = true }
+futures-util = { version = "0", optional = true, default-features = false }
+mime_guess = { version = "2", optional = true, default-features = false }
 notify = { version = "9.0.0", optional = true }
 open = { version = "5", optional = true }
 tokio = { version = "1", optional = true, default-features = false, features = [
@@ -53,9 +53,9 @@ tokio = { version = "1", optional = true, default-features = false, features = [
 
 [dev-dependencies]
 http-body-util = "0"
-reqwest = "0.13"
+reqwest = { version = "0.13", default-features = false }
 tempfile = "3"
-tower = { version = "0", features = ["util"] }
+tower = { version = "0", default-features = false, features = ["util"] }
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
