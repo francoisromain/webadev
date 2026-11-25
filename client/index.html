@@ -16,7 +16,7 @@
 
     <p align="center">
       <br>
-      <a href="https://github.com/francoisromain/webadev">
+      <a href="https://crates.io/crates/webadev">
         <img src="https://raw.githubusercontent.com/francoisromain/webadev/main/client/webadev.svg" alt="Webadev logo"
           width="160">
       </a>
@@ -143,7 +143,8 @@ server.run().await?;                        // blocks until shutdown</code></pre
       port (the chosen port is visible in <code>server.url</code>).
     </p>
     <p>
-      Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty string or <code>/</code> serves at the
+      Set <code>config.base</code> to prefix the path (e.g. <code>/app</code>). Empty string or <code>/</code> serves at
+      the
       root; any other value must start with <code>/</code>.
     </p>
 
@@ -271,10 +272,10 @@ assert!(base_normalize("/app/../x").is_err());</code></pre>
       and <code>base_normalize</code>.
     </p>
     <pre><code># watcher only, no HTTP server and no CLI deps
-webadev = { version = "0.13", default-features = false, features = ["watch"] }
+webadev = { version = "0.14", default-features = false, features = ["watch"] }
 
 # server only, no watcher
-webadev = { version = "0.13", default-features = false, features = ["serve"] }</code></pre>
+webadev = { version = "0.14", default-features = false, features = ["serve"] }</code></pre>
 
     <h2 id="local-installation">Local installation</h2>
 

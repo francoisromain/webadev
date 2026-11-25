@@ -2,7 +2,7 @@
 
 ## Comparison table
 
-| | webadev 0.7 | live-server 0.11.1 | servio 0.7.0 |
+| | webadev 0.14 | live-server 0.11.1 | servio 0.7.0 |
 |---|---|---|---|
 | **Status** | new (Sep 2026) | maintained (Mar 2026) | new and very active (Sep 2026) |
 | **License** | MIT | MIT | MIT |
@@ -12,8 +12,8 @@
 | **Reload transport** | **SSE** (`/livereload`, same port) | WebSocket (`/live-server-ws`, same port) | **SSE** (via `tower-livereload`, same port) |
 | **Hot reload style** | CSS-only: hot-swaps `<link rel=stylesheet>`, full reload for html/js | soft reload: swaps head+body (or `--hard` full reload) | none (full reload) |
 | **Debounce** | 200ms (hand-rolled) | 200ms (`notify-debouncer-full`) | "refresh once quiet": 150ms quiet + 1s cap |
-| **Resync on server restart** | yes (reloads on SSE reconnect) | yes (reload on WS reconnect) | yes (tower-livereload `init` event) |
-| **File event filter** | html/css/js/jsx/ts/tsx only | all events (unless `--ignore`) | all events (unless ignored) |
+| **Resync on server restart** | yes (SSE reconnect; fixed `--port` required) | yes (reload on WS reconnect) | yes (tower-livereload `init` event) |
+| **File event filter** | all by default; configurable with `--filter <suffixes>` | all events (unless `--ignore`) | all events (unless ignored) |
 | **Ignore patterns** | none | `--ignore` (hidden + .gitignore via `ignore` crate) | `--ignore` + `.servioignore` (globset) |
 | **Poll mode fallback** | none | `--poll` (PollWatcher) | `--poll` (1s, content compare) |
 | **Directory listing** | no | yes (`--index`) | yes (+ `?list`) |
@@ -37,13 +37,12 @@ The small-and-focused option.
 
 https://crates.io/crates/webadev
 
-- SSE one-way reload (fewer moving parts than WS, native browser auto-reconnect), 
-- 200ms debounce, 
-- CSS-only hot reload, 
-- zero-config script injection, 
-- resolvable after a server restart, 
-- custom `--index`/`--header`/port 0
-- the only one exposing a clean library API with the `(ReloadType, paths)` broadcast. 
+- SSE reload with auto-reconnect (fixed `--port` needed after restart),
+- 200ms debounce,
+- CSS-only hot reload,
+- zero-config script injection,
+- custom `--filter`, `--index`, `--header`, `--base`, port 0,
+- the only clean library API with the `(ReloadType, paths)` broadcast.
 
 Gaps: no listings, no compression, no SPA/prod mode, no ignore patterns or poll fallback, no structured logging.
 

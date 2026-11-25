@@ -2,7 +2,7 @@
 
 <p align="center">
   <br>
-  <a href="https://github.com/francoisromain/webadev">
+  <a href="https://crates.io/crates/webadev">
     <img src="https://raw.githubusercontent.com/francoisromain/webadev/main/client/webadev.svg" alt="Webadev logo" width="160">
   </a>
   <br>
@@ -197,10 +197,10 @@ assert!(base_normalize("/app/../x").is_err());
 
 ```toml
 # watcher only, no HTTP server and no CLI deps
-webadev = { version = "0.13", default-features = false, features = ["watch"] }
+webadev = { version = "0.14", default-features = false, features = ["watch"] }
 
 # server only, no watcher
-webadev = { version = "0.13", default-features = false, features = ["serve"] }
+webadev = { version = "0.14", default-features = false, features = ["serve"] }
 ```
 
 ## Local installation
